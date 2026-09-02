@@ -53,12 +53,22 @@ export default function App({ route, onNavigate, children }: AppProps) {
           </div>
         </div>
         <nav className="topbar-nav" aria-label="Principal">
+          {module === 'fc' && (
+            <>
+              <a className={isActive('/fc/pre-guias')} href="#/fc/pre-guias" onClick={() => onNavigate('/fc/pre-guias')}>
+                Pre-guias
+              </a>
+              <a className={isActive('/fc/guias-internas')} href="#/fc/guias-internas" onClick={() => onNavigate('/fc/guias-internas')}>
+                Guias internas
+              </a>
+            </>
+          )}
           <a
             className={isActive(routes.guias)}
             href={`#${routes.guias}`}
             onClick={() => onNavigate(routes.guias)}
           >
-            Guias
+            {module === 'fc' ? 'GRE' : 'Guias'}
           </a>
           {module !== 'traslado' && (
             <a

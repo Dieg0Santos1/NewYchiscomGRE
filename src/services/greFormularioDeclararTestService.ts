@@ -268,6 +268,10 @@ async function upsertOperation(transaction: sql.Transaction, input: GreInputDto,
   request.input('numeroBultos', sql.Int, input.traslado.numeroBultos);
   request.input('usuario', sql.NVarChar(128), options.user ?? null);
   request.input('datosJson', sql.NVarChar(sql.MAX), JSON.stringify(input));
+  request.input('origenOperacion', sql.VarChar(30), input.trazabilidadYchiscom?.origenOperacion ?? 'FRONT_MANUAL');
+  request.input('idGuiaFisicaYchiscom', sql.Int, input.trazabilidadYchiscom?.idGuiaFisicaYchiscom ?? null);
+  request.input('numeroGuiaFisica', sql.VarChar(30), input.trazabilidadYchiscom?.numeroGuiaFisica ?? null);
+  request.input('idDocumentoYchiscom', sql.Int, input.trazabilidadYchiscom?.idDocumentoYchiscom ?? null);
 
   const result = await request.query<{ id: number }>(`
     IF EXISTS (SELECT 1 FROM dbo.GRE_FC_OPERACION WHERE idOperacion = @idOperacion)
@@ -275,7 +279,11 @@ async function upsertOperation(transaction: sql.Transaction, input: GreInputDto,
       UPDATE dbo.GRE_FC_OPERACION
       SET estado = 'PREPARANDO',
           actualizadoEn = SYSUTCDATETIME(),
-          usuario = COALESCE(@usuario, usuario)
+          usuario = COALESCE(@usuario, usuario),
+          origenOperacion = COALESCE(@origenOperacion, origenOperacion),
+          idGuiaFisicaYchiscom = COALESCE(@idGuiaFisicaYchiscom, idGuiaFisicaYchiscom),
+          numeroGuiaFisica = COALESCE(@numeroGuiaFisica, numeroGuiaFisica),
+          idDocumentoYchiscom = COALESCE(@idDocumentoYchiscom, idDocumentoYchiscom)
       WHERE idOperacion = @idOperacion;
 
       SELECT id
@@ -298,7 +306,11 @@ async function upsertOperation(transaction: sql.Transaction, input: GreInputDto,
         numeroBultos,
         estado,
         usuario,
-        datosJson
+        datosJson,
+        origenOperacion,
+        idGuiaFisicaYchiscom,
+        numeroGuiaFisica,
+        idDocumentoYchiscom
       )
       OUTPUT INSERTED.id
       VALUES
@@ -315,7 +327,11 @@ async function upsertOperation(transaction: sql.Transaction, input: GreInputDto,
         @numeroBultos,
         'PREPARANDO',
         @usuario,
-        @datosJson
+        @datosJson,
+        @origenOperacion,
+        @idGuiaFisicaYchiscom,
+        @numeroGuiaFisica,
+        @idDocumentoYchiscom
       );
     END
   `);

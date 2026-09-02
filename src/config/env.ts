@@ -27,6 +27,7 @@ const envSchema = z.object({
   GRE_PARTIDA_UBIGEO: z.string().min(6).default('140109'),
   GRE_PARTIDA_DIRECCION: z.string().min(1).default('AV. LUNA PIZARRO 1328-1340, LA VICTORIA'),
   GRE_DIRECT_DB_INSERT_ENABLED: booleanFromEnv.default(false),
+  FC_LEGACY_WRITE_ENABLED: disabledBooleanFromEnv,
   GRE_FC_SQL_SERVER: z.string().optional().default(''),
   GRE_FC_SQL_PORT: z.coerce.number().int().positive().default(1433),
   GRE_FC_SQL_DATABASE: z.string().optional().default('GRE_FORMULARIOS_TEST'),
@@ -77,6 +78,7 @@ export type AppConfig = {
   existingGreApiToken: string;
   requestTimeoutMs: number;
   directDbInsertEnabled: boolean;
+  fcLegacyWriteEnabled: boolean;
   remitente: {
     tipoDocumento: string;
     numeroDocumento: string;
@@ -105,6 +107,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppConfig {
     existingGreApiToken: parsed.EXISTING_GRE_API_TOKEN,
     requestTimeoutMs: parsed.GRE_REQUEST_TIMEOUT_MS,
     directDbInsertEnabled: parsed.GRE_DIRECT_DB_INSERT_ENABLED,
+    fcLegacyWriteEnabled: parsed.FC_LEGACY_WRITE_ENABLED,
     remitente: {
       tipoDocumento: parsed.GRE_REMITENTE_TIPO_DOCUMENTO,
       numeroDocumento: parsed.GRE_REMITENTE_NUMERO_DOCUMENTO,

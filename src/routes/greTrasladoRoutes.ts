@@ -162,6 +162,11 @@ export function greTrasladoRoutes(
     }
 
     const payload = mapGreInputToPayload(parsed.data, getGreDefaults(config));
+    if (parsed.data.transportista) {
+      payload.tipoDocumentoTransportista = parsed.data.transportista.tipoDocumentoTransportista;
+      payload.numeroRucTransportista = parsed.data.transportista.numeroRucTransportista;
+      payload.razonSocialTransportista = parsed.data.transportista.razonSocialTransportista;
+    }
 
     res.status(200).json({
       ok: true,

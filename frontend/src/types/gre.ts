@@ -22,6 +22,11 @@ export type WorkOrderDocument = {
   destinatario: WorkOrderRecipient | null;
   destinos: RecipientAddress[];
   productos: ProductItem[];
+  trazabilidadYchiscom?: {
+    idGuiaFisicaYchiscom: number | null;
+    numeroGuiaFisica: string | null;
+    idDocumentoYchiscom: number | null;
+  };
 };
 
 export type WorkOrderSearchStatus =
@@ -106,6 +111,12 @@ export type GreFormState = {
   numeroPlacaVehiculoPrin: string;
   selectedPrivateDriverId: string;
   items: ProductItem[];
+  trazabilidadYchiscom?: {
+    origenOperacion: 'FRONT_MANUAL' | 'YCHISCOM_AUTOMATICO';
+    idGuiaFisicaYchiscom?: number | null;
+    numeroGuiaFisica?: string | null;
+    idDocumentoYchiscom?: number | null;
+  };
 };
 
 export type GreInputDto = {
@@ -116,6 +127,12 @@ export type GreInputDto = {
   fechaEntregaBienes: string;
   observaciones: string;
   correoDestinatario: string;
+  trazabilidadYchiscom?: {
+    origenOperacion: 'FRONT_MANUAL' | 'YCHISCOM_AUTOMATICO';
+    idGuiaFisicaYchiscom?: number | null;
+    numeroGuiaFisica?: string | null;
+    idDocumentoYchiscom?: number | null;
+  };
   destinatario: {
     tipoDocumentoDestinatario: string;
     numeroDocumentoDestinatario: string;

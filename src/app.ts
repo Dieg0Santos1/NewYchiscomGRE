@@ -7,6 +7,8 @@ import { createExistingGreClient, type ExistingGreClient } from './integrations/
 import { errorHandler } from './middleware/errorHandler.js';
 import { frontendAssets } from './middleware/frontendAssets.js';
 import { fcFacturaRoutes } from './routes/fcFacturaRoutes.js';
+import { fcLegacyWorkflowRoutes } from './routes/fcLegacyWorkflowRoutes.js';
+import type { FcLegacyWorkflowRouteService } from './routes/fcLegacyWorkflowRoutes.js';
 import { flexoFacturaRoutes } from './routes/flexoFacturaRoutes.js';
 import { flexoRoutes } from './routes/flexoRoutes.js';
 import { greFormularioRoutes } from './routes/greFormularioRoutes.js';
@@ -28,6 +30,7 @@ export function createApp(options?: {
   config?: AppConfig;
   existingGreClient?: ExistingGreClient;
   fcFacturaService?: FcFacturaService;
+  fcLegacyWorkflowService?: FcLegacyWorkflowRouteService;
   flexoFacturaService?: FlexoFacturaService;
   greFormularioDeclararTestService?: GreFormularioDeclararTestService;
   greFormularioManualSunatService?: GreFormularioManualSunatService;
@@ -67,6 +70,7 @@ export function createApp(options?: {
   ));
   app.use(greTrasladoRoutes(config, options?.greTrasladoService, options?.greTrasladoManualSunatService));
   app.use(fcFacturaRoutes(config, options?.fcFacturaService));
+  app.use(fcLegacyWorkflowRoutes(config, options?.fcLegacyWorkflowService));
   app.use(flexoFacturaRoutes(config, options?.flexoFacturaService));
   app.use(reportesEspecialesRoutes(config, options?.reportesEspecialesService));
   if (config.serveFrontend) {

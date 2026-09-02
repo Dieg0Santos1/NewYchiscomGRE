@@ -1,25 +1,18 @@
 import sql from 'mssql';
-import { config as loadDotenv } from 'dotenv';
-
-loadDotenv();
 
 const dbConfig = {
-  server: process.env.YCHI_SQL_SERVER || process.env.YCHIDB3_SQL_SERVER || '',
-  port: Number(process.env.YCHI_SQL_PORT || process.env.YCHIDB3_SQL_PORT || 1433),
-  database: process.env.YCHI_SQL_DATABASE || process.env.YCHIDB3_SQL_DATABASE || 'YCHIDB3',
-  user: process.env.YCHI_SQL_USER || process.env.YCHIDB3_SQL_USER || '',
-  password: process.env.YCHI_SQL_PASSWORD || process.env.YCHIDB3_SQL_PASSWORD || '',
+  server: '192.168.1.140',
+  port: 1433,
+  database: 'YCHIDB3',
+  user: 'gre_app_test',
+  password: '72032575Dasa*',
   options: {
-    encrypt: (process.env.YCHI_SQL_ENCRYPT || process.env.YCHIDB3_SQL_ENCRYPT) === 'true',
-    trustServerCertificate: (process.env.YCHI_SQL_TRUST_SERVER_CERTIFICATE || process.env.YCHIDB3_SQL_TRUST_SERVER_CERTIFICATE || 'true') === 'true'
+    encrypt: false,
+    trustServerCertificate: true
   }
 };
 
 async function test() {
-  if (!dbConfig.server || !dbConfig.user || !dbConfig.password) {
-    throw new Error('Configure YCHI_SQL_SERVER, YCHI_SQL_USER y YCHI_SQL_PASSWORD en .env antes de consultar.');
-  }
-
   const pool = new sql.ConnectionPool(dbConfig);
   await pool.connect();
   console.log("Connected!");
@@ -36,12 +29,10 @@ async function test() {
       const idClieProv = clientRes.recordset[0].idClieProv;
       
       // 2. Get all addresses from tbcliedireccion for this client
-      const addressesRequest = pool.request();
-      addressesRequest.input('idClieProv', sql.Int, idClieProv);
-      const addressesRes = await addressesRequest.query(`
+      const addressesRes = await pool.request().query(`
         SELECT idcliedireccion, idclieprov, direccion 
         FROM dbo.tbcliedireccion 
-        WHERE idclieprov = @idClieProv
+        WHERE idclieprov = ${idClieProv}
       `);
       console.log(`Addresses in tbcliedireccion for client ${idClieProv}:`);
       addressesRes.recordset.forEach(row => {
@@ -49,9 +40,7 @@ async function test() {
       });
 
       // 3. Let's run the exact sub-query used in greFormularioQueryService to resolve ubigeos for this client
-      const queryRequest = pool.request();
-      queryRequest.input('idClieProv', sql.Int, idClieProv);
-      const queryRes = await queryRequest.query(`
+      const queryRes = await pool.request().query(`
         SELECT 
           cd.idcliedireccion,
           cd.direccion,
@@ -74,7 +63,7 @@ async function test() {
             LEN(LTRIM(RTRIM(u.DISTRITO))) DESC,
             u.[CODIGO UBIGEO]
         ) ubigeoPorDireccion
-        WHERE cd.idclieprov = @idClieProv
+        WHERE cd.idclieprov = ${idClieProv}
       `);
       console.log("\nResolved Ubigeos via SQL query:");
       queryRes.recordset.forEach(row => {

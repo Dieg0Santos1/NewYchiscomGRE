@@ -5,20 +5,9 @@ export type GrePayload = ReturnType<typeof mapGreInputToPayload>;
 
 const empty = '';
 
-type GreInputWithOptionalTransportista = GreInputDto & {
-  transportista?: {
-    tipoDocumentoTransportista: string;
-    numeroRucTransportista: string;
-    razonSocialTransportista: string;
-  };
-};
-
-export function mapGreInputToPayload(input: GreInputWithOptionalTransportista, defaults: GreDefaults) {
+export function mapGreInputToPayload(input: GreInputDto, defaults: GreDefaults) {
   const conductor = input.conductor;
   const vehiculo = input.vehiculo;
-  const transportista = input.transportista;
-  const isPrivateTransport = input.traslado.modalidadTraslado === '02';
-  const isPublicTransport = input.traslado.modalidadTraslado === '01';
 
   return {
     tipoDocumentoRemitente: defaults.remitente.tipoDocumento,
@@ -53,12 +42,12 @@ export function mapGreInputToPayload(input: GreInputWithOptionalTransportista, d
     ubigeoPtoLLegada: input.traslado.ubigeoPtoLlegada,
     direccionPtoLLegada: input.traslado.direccionPtoLlegada,
     codigoPtollegada: input.traslado.codigoPtoLlegada,
-    tipoDocumentoConductor: isPrivateTransport ? (conductor?.tipoDocumentoConductor ?? empty) : empty,
-    numeroDocumentoConductor: isPrivateTransport ? (conductor?.numeroDocumentoConductor ?? empty) : empty,
-    nombreConductor: isPrivateTransport ? (conductor?.nombreConductor ?? empty) : empty,
-    apellidoConductor: isPrivateTransport ? (conductor?.apellidoConductor ?? empty) : empty,
-    numeroLicencia: isPrivateTransport ? (conductor?.numeroLicencia ?? empty) : empty,
-    numeroPlacaVehiculoPrin: isPrivateTransport ? (vehiculo?.numeroPlacaVehiculoPrin ?? empty) : empty,
+    tipoDocumentoConductor: conductor?.tipoDocumentoConductor ?? empty,
+    numeroDocumentoConductor: conductor?.numeroDocumentoConductor ?? empty,
+    nombreConductor: conductor?.nombreConductor ?? empty,
+    apellidoConductor: conductor?.apellidoConductor ?? empty,
+    numeroLicencia: conductor?.numeroLicencia ?? empty,
+    numeroPlacaVehiculoPrin: vehiculo?.numeroPlacaVehiculoPrin ?? empty,
     numeroPlacaVehiculoSec1: empty,
     numeroAutorizacionRem: empty,
     codigoAutorizadoRem: empty,
@@ -106,9 +95,9 @@ export function mapGreInputToPayload(input: GreInputWithOptionalTransportista, d
     numeroDocumentoEstablecimiento: empty,
     tipoDocumentoEstablecimiento: empty,
     razonSocialEstablecimiento: empty,
-    numeroRucTransportista: isPublicTransport ? (transportista?.numeroRucTransportista ?? empty) : empty,
-    tipoDocumentoTransportista: isPublicTransport ? (transportista?.tipoDocumentoTransportista ?? empty) : empty,
-    razonSocialTransportista: isPublicTransport ? (transportista?.razonSocialTransportista ?? empty) : empty,
+    numeroRucTransportista: empty,
+    tipoDocumentoTransportista: empty,
+    razonSocialTransportista: empty,
     numeroRegistroMTC: empty,
     indTransbordoProgramado: empty,
     indRetornoVehiculoEnvaseVacio: empty,

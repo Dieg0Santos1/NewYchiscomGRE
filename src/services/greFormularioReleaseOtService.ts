@@ -14,9 +14,11 @@ type WorkOrderTraceRow = {
   idDetGuia: number;
   idOrdenVenta: number;
   idOT: number;
+  idRecepcionOT: number;
 };
 
 type ReceptionStateRow = {
+  idRecepcionOT: number;
   idOT: number;
   estadoGuia: string | null;
 };
@@ -28,6 +30,7 @@ export type ReleaseWorkOrdersResult = {
   updated: boolean;
   affectedRows: number;
   idsOT: number[];
+  idsRecepcionOT: number[];
   before: ReceptionStateRow[];
   after: ReceptionStateRow[];
 };
@@ -69,6 +72,7 @@ export class DirectDbGreFormularioReleaseOtService implements GreFormularioRelea
           updated: false,
           affectedRows: 0,
           idsOT: [],
+          idsRecepcionOT: [],
           before: [],
           after: []
         };
@@ -84,12 +88,13 @@ export class DirectDbGreFormularioReleaseOtService implements GreFormularioRelea
 
       const workOrders = await resolveWorkOrdersFromDetails(ychiTransaction, detailIds);
       const idsOT = [...new Set(workOrders.map((row) => row.idOT).filter((value) => Number.isFinite(value)))];
+      const idsRecepcionOT = [...new Set(workOrders.map((row) => row.idRecepcionOT).filter((value) => Number.isFinite(value)))];
 
-      if (idsOT.length === 0) {
-        throw new Error(`No se pudo resolver IDOT desde los detalles trazados de ${serieNumeroGuia}.`);
+      if (idsOT.length === 0 || idsRecepcionOT.length === 0) {
+        throw new Error(`No se pudo resolver idRecepcionOT desde los detalles trazados de ${serieNumeroGuia}.`);
       }
 
-      const before = await getReceptionStates(ychiTransaction, idsOT);
+      const before = await getReceptionStates(ychiTransaction, idsRecepcionOT);
       await insertEvent(greFcTransaction, traced, 'OT_LIBERACION_INICIADA', 'Liberacion controlada de OT iniciada', {
         serieNumeroGuia,
         user: options.user ?? null,
@@ -98,14 +103,15 @@ export class DirectDbGreFormularioReleaseOtService implements GreFormularioRelea
         before
       });
 
-      const affectedRows = await updateReceptionStatesToAvailable(ychiTransaction, idsOT);
-      const after = await getReceptionStates(ychiTransaction, idsOT);
+      const affectedRows = await updateReceptionStatesToAvailable(ychiTransaction, idsRecepcionOT);
+      const after = await getReceptionStates(ychiTransaction, idsRecepcionOT);
 
       await insertEvent(greFcTransaction, traced, 'OT_LIBERADA_YCHIDB3', 'EstadoGuia cambiado de S a N en YCHIDB3', {
         serieNumeroGuia,
         user: options.user ?? null,
         detailIds,
         idsOT,
+        idsRecepcionOT,
         affectedRows,
         before,
         after
@@ -123,6 +129,7 @@ export class DirectDbGreFormularioReleaseOtService implements GreFormularioRelea
         updated: affectedRows > 0,
         affectedRows,
         idsOT,
+        idsRecepcionOT,
         before,
         after
       };
@@ -227,42 +234,44 @@ async function resolveWorkOrdersFromDetails(transaction: sql.Transaction, detail
     SELECT DISTINCT
       d.idDetGuia,
       d.idOrdenVenta,
-      b.IDOT AS idOT
+      r.idOT,
+      dg.idRecepcionOT
     FROM dbo.VW_DETGUIA_REMISION d
-    INNER JOIN dbo.VW_BUSCAS_DOCUMENTOS b
-      ON b.idOrdenVenta = d.idOrdenVenta
+    INNER JOIN dbo.tbDetGuias dg ON dg.idDetGuia = d.idDetGuia
+    INNER JOIN dbo.tbRecepcionOT r ON r.idRecepcionOT = dg.idRecepcionOT
     WHERE d.idDetGuia IN (${parameters.join(', ')})
       AND ISNULL(d.idDocumentos, 0) > 0
-      AND b.IDOT IS NOT NULL;
+      AND dg.idRecepcionOT IS NOT NULL;
   `);
 
   return result.recordset;
 }
 
-async function getReceptionStates(transaction: sql.Transaction, idsOT: number[]) {
+async function getReceptionStates(transaction: sql.Transaction, idsRecepcionOT: number[]) {
   const request = new sql.Request(transaction);
-  const parameters = idsOT.map((id, index) => {
-    const name = `idOT${index}`;
+  const parameters = idsRecepcionOT.map((id, index) => {
+    const name = `idRecepcionOT${index}`;
     request.input(name, sql.Int, id);
     return `@${name}`;
   });
 
   const result = await request.query<ReceptionStateRow>(`
     SELECT
+      idRecepcionOT,
       IDOT AS idOT,
       EstadoGuia AS estadoGuia
     FROM dbo.tbRecepcionOT WITH (UPDLOCK, HOLDLOCK)
-    WHERE IDOT IN (${parameters.join(', ')})
-    ORDER BY IDOT;
+    WHERE idRecepcionOT IN (${parameters.join(', ')})
+    ORDER BY idRecepcionOT;
   `);
 
   return result.recordset;
 }
 
-async function updateReceptionStatesToAvailable(transaction: sql.Transaction, idsOT: number[]) {
+async function updateReceptionStatesToAvailable(transaction: sql.Transaction, idsRecepcionOT: number[]) {
   const request = new sql.Request(transaction);
-  const parameters = idsOT.map((id, index) => {
-    const name = `idOTUpdate${index}`;
+  const parameters = idsRecepcionOT.map((id, index) => {
+    const name = `idRecepcionOTUpdate${index}`;
     request.input(name, sql.Int, id);
     return `@${name}`;
   });
@@ -270,7 +279,7 @@ async function updateReceptionStatesToAvailable(transaction: sql.Transaction, id
   const result = await request.query<{ affectedRows: number }>(`
     UPDATE dbo.tbRecepcionOT
     SET EstadoGuia = 'N'
-    WHERE IDOT IN (${parameters.join(', ')})
+    WHERE idRecepcionOT IN (${parameters.join(', ')})
       AND EstadoGuia = 'S';
 
     SELECT @@ROWCOUNT AS affectedRows;

@@ -26,6 +26,11 @@ export type WorkOrderDocument = {
   destinatario: WorkOrderRecipient | null;
   destinos: GreDestino[];
   productos: WorkOrderProduct[];
+  trazabilidadYchiscom?: {
+    idGuiaFisicaYchiscom: number | null;
+    numeroGuiaFisica: string | null;
+    idDocumentoYchiscom: number | null;
+  };
 };
 
 export type WorkOrderSearchStatus =
@@ -380,7 +385,7 @@ export class GreFormularioQueryService {
           DescClieProv,
           Encargado
         FROM dbo.tbDocumentos
-        WHERE idTipoDocu = 8
+        WHERE ((@serie = '001' AND idTipoDocu = 8) OR (@serie = '003' AND idTipoDocu = 39))
           AND SeriDocu = @serie
           AND NumeDocu = @numero
       `);
@@ -394,7 +399,16 @@ export class GreFormularioQueryService {
       }
 
       const doc = docResult.recordset[0]!;
-      const idDocumento = doc.idDocumento;
+        const idDocumento = doc.idDocumento;
+
+        const traceRequest = new sql.Request(pool);
+        traceRequest.input('idDocumento', sql.Int, idDocumento);
+        const traceResult = await traceRequest.query<{ idGuia: number | null }>(`
+          SELECT TOP (1) dg.idGuia
+          FROM dbo.tbDetGuias dg
+          WHERE dg.idDocumentos = @idDocumento
+          ORDER BY dg.idDetGuia;
+        `);
 
       const bizlinksPool = createBizlinksPool(this.config);
       await bizlinksPool.connect();
@@ -471,7 +485,12 @@ export class GreFormularioQueryService {
           ordenCompra: orderPurchaseResult.ordenCompra,
           destinatario,
           destinos,
-          productos
+          productos,
+          trazabilidadYchiscom: {
+            idGuiaFisicaYchiscom: traceResult.recordset[0]?.idGuia ?? null,
+            numeroGuiaFisica: `${doc.SeriDocu}-${doc.NumeDocu}`,
+            idDocumentoYchiscom: idDocumento
+          }
         };
 
         const warnings = [
@@ -514,30 +533,10 @@ export class GreFormularioQueryService {
   }
 
   async getDestinos(numeroDocumento: string) {
-    const normalized = numeroDocumento.trim();
-
-    try {
-      return {
-        numeroDocumento: normalized,
-        destinos: await this.existingGreClient.getDestinos(normalized),
-        warnings: [] as string[]
-      };
-    } catch (error) {
-      if (!(error instanceof ExistingGreClientError)) throw error;
-
-      const bizlinksPool = createBizlinksPool(this.config);
-      await bizlinksPool.connect();
-
-      try {
-        return {
-          numeroDocumento: normalized,
-          destinos: await getDestinosFromBizlinksHistory(bizlinksPool, normalized),
-          warnings: [`Destino cargado desde historial Bizlinks porque GetDestino no respondio: ${error.message}`]
-        };
-      } finally {
-        await bizlinksPool.close();
-      }
-    }
+    return {
+      numeroDocumento: numeroDocumento.trim(),
+      destinos: await this.existingGreClient.getDestinos(numeroDocumento)
+    };
   }
 
   async searchDrivers(): Promise<DriverCatalogItem[]> {

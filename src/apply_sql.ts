@@ -1,9 +1,6 @@
 import sql from 'mssql';
 import * as fs from 'fs';
 import * as path from 'path';
-import { config as loadDotenv } from 'dotenv';
-
-loadDotenv();
 
 async function main() {
   const mode = process.argv[2];
@@ -13,7 +10,7 @@ async function main() {
   }
 
   const fileName = mode === 'upgrade' ? 'upgrade_procedures.sql' : 'rollback_procedures.sql';
-  const filePath = path.join(process.cwd(), 'src', fileName);
+  const filePath = path.join('D:/CODE/NewSystemGRE/src', fileName);
   
   if (!fs.existsSync(filePath)) {
     console.error(`No se encontro el archivo SQL: ${filePath}`);
@@ -21,21 +18,16 @@ async function main() {
   }
 
   const saConfig = {
-    server: process.env.YCHI_SQL_SERVER || process.env.YCHIDB3_SQL_SERVER || '',
-    port: Number(process.env.YCHI_SQL_PORT || process.env.YCHIDB3_SQL_PORT || 1433),
-    database: process.env.YCHI_SQL_DATABASE || process.env.YCHIDB3_SQL_DATABASE || 'YCHIDB3',
-    user: process.env.YCHI_SQL_USER || process.env.YCHIDB3_SQL_USER || '',
-    password: process.env.YCHI_SQL_PASSWORD || process.env.YCHIDB3_SQL_PASSWORD || '',
+    server: '192.168.1.140',
+    port: 1433,
+    database: 'YCHIDB3',
+    user: 'sa',
+    password: 'G8dag6tg4dt',
     options: {
-      encrypt: (process.env.YCHI_SQL_ENCRYPT || process.env.YCHIDB3_SQL_ENCRYPT) === 'true',
-      trustServerCertificate: (process.env.YCHI_SQL_TRUST_SERVER_CERTIFICATE || process.env.YCHIDB3_SQL_TRUST_SERVER_CERTIFICATE || 'true') === 'true'
+      encrypt: false,
+      trustServerCertificate: true
     }
   };
-
-  if (!saConfig.server || !saConfig.user || !saConfig.password) {
-    console.error('Configure YCHI_SQL_SERVER, YCHI_SQL_USER y YCHI_SQL_PASSWORD en .env antes de aplicar SQL.');
-    process.exit(1);
-  }
 
   const pool = new sql.ConnectionPool(saConfig);
   await pool.connect();

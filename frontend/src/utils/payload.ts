@@ -9,6 +9,7 @@ export function toGreInputDto(form: GreFormState): GreInputDto {
     fechaEntregaBienes: form.fechaEntregaBienes,
     observaciones: form.observaciones,
     correoDestinatario: form.correoDestinatario.trim() || '-',
+    trazabilidadYchiscom: form.trazabilidadYchiscom ?? { origenOperacion: 'FRONT_MANUAL' },
     destinatario: {
       tipoDocumentoDestinatario: form.tipoDocumentoDestinatario,
       numeroDocumentoDestinatario: form.numeroDocumentoDestinatario,

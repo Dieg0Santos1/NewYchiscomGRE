@@ -9,6 +9,7 @@ export const testConfig: AppConfig = {
   existingGreApiToken: 'TEST_TOKEN_PLACEHOLDER',
   requestTimeoutMs: 30000,
   directDbInsertEnabled: false,
+  fcLegacyWriteEnabled: false,
   remitente: {
     tipoDocumento: '6',
     numeroDocumento: '20259402965',

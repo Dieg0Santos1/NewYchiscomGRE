@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { FlexoGuidePage } from './pages/FlexoGuidePage';
 import { FlexoInvoicePage } from './pages/FlexoInvoicePage';
+import { FcLegacyWorkflowPage } from './pages/FcLegacyWorkflowPage';
 import { GuideListPage } from './pages/GuideListPage';
 import { InvoicePage } from './pages/InvoicePage';
 import { NewGuidePage } from './pages/NewGuidePage';
@@ -12,6 +13,8 @@ import { TrasladoReportPage } from './pages/TrasladoReportPage';
 import './styles.css';
 
 const routes = new Set([
+  '/fc/pre-guias',
+  '/fc/guias-internas',
   '/guias/nueva',
   '/guias/listado',
   '/facturas',
@@ -50,8 +53,12 @@ function Shell() {
 
   return (
     <App route={route} onNavigate={navigate}>
-      {route === '/flexo/guias/nueva'
-        ? <FlexoGuidePage />
+      {route === '/fc/pre-guias'
+        ? <FcLegacyWorkflowPage mode="pre-guide" />
+        : route === '/fc/guias-internas'
+          ? <FcLegacyWorkflowPage mode="internal-guide" />
+          : route === '/flexo/guias/nueva'
+            ? <FlexoGuidePage />
         : route === '/flexo/facturas'
           ? <FlexoInvoicePage />
           : route === '/flexo/reportes'

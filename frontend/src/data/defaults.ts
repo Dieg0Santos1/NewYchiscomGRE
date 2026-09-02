@@ -1,10 +1,9 @@
 import type { GreFormState } from '../types/gre';
+import { ACTIVE_SERIE } from './series';
 
 function pad(value: number) {
   return String(value).padStart(2, '0');
 }
-
-const SUNAT_CLOCK_SAFETY_MINUTES = 15;
 
 export function todayDate() {
   const now = new Date();
@@ -15,6 +14,8 @@ export function currentTime() {
   const now = new Date();
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
 }
+
+const SUNAT_CLOCK_SAFETY_MINUTES = 15;
 
 export function sunatDateTime() {
   const adjusted = new Date(Date.now() - SUNAT_CLOCK_SAFETY_MINUTES * 60 * 1000);
@@ -76,4 +77,3 @@ export function createDefaultFormState(): GreFormState {
     items: []
   };
 }
-import { ACTIVE_SERIE } from './series';

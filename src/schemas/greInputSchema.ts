@@ -56,6 +56,12 @@ export const greInputSchema = z
     fechaEntregaBienes: dateSchema,
     observaciones: z.string().default(''),
     correoDestinatario: z.string().min(1).default('-'),
+    trazabilidadYchiscom: z.object({
+      origenOperacion: z.enum(['FRONT_MANUAL', 'YCHISCOM_AUTOMATICO']).default('FRONT_MANUAL'),
+      idGuiaFisicaYchiscom: z.coerce.number().int().positive().nullable().optional(),
+      numeroGuiaFisica: z.string().max(30).nullable().optional(),
+      idDocumentoYchiscom: z.coerce.number().int().positive().nullable().optional()
+    }).optional(),
     destinatario: z.object({
       tipoDocumentoDestinatario: z.string().min(1).default('6'),
       numeroDocumentoDestinatario: z.string().min(1),

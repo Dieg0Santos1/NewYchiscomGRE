@@ -158,6 +158,9 @@ export function NewGuidePage() {
     setForm((current) => ({
       ...current,
       selectedIdDocumentos: document.idDocumentos,
+      trazabilidadYchiscom: document.trazabilidadYchiscom
+        ? { origenOperacion: 'FRONT_MANUAL', ...document.trazabilidadYchiscom }
+        : { origenOperacion: 'FRONT_MANUAL' },
       ordenCompra: document.ordenCompra,
       observaciones: mergePurchaseOrderObservation(current.observaciones, document.ordenCompra),
       searchText: document.numeroOt || current.searchText,
@@ -209,7 +212,7 @@ export function NewGuidePage() {
 
   async function loadDocument() {
     setPreviewConfirmed(false);
-    setLoadMessage(searchType === 'guia' ? 'Buscando Miscelánea...' : 'Buscando OT...');
+    setLoadMessage(searchType === 'guia' ? 'Buscando guia fisica 001/003...' : 'Buscando OT...');
 
     try {
       const result = await workOrderService.searchByOt(form.searchText, searchType);
@@ -228,7 +231,7 @@ export function NewGuidePage() {
         applyWorkOrderDocument(result.documents[0]);
         setLoadMessage([
           result.status === 'OT_DISPONIBLE'
-            ? (searchType === 'guia' ? `Documento misceláneo disponible. Productos: ${result.documents[0].productos.length}` : `OT disponible. Productos: ${result.documents[0].productos.length}`)
+            ? (searchType === 'guia' ? `Guia fisica disponible. Productos: ${result.documents[0].productos.length}` : `OT disponible. Productos: ${result.documents[0].productos.length}`)
             : result.message,
           ...(result.warnings ?? [])
         ].join(' '));
@@ -237,9 +240,9 @@ export function NewGuidePage() {
 
       setOtDocuments(result.documents);
       setOtDocumentOpen(true);
-      setLoadMessage(searchType === 'guia' ? `Documento misceláneo disponible. Se encontraron ${result.documents.length} registros.` : `OT disponible. Se encontraron ${result.documents.length} documentos relacionados.`);
+      setLoadMessage(searchType === 'guia' ? `Guia fisica disponible. Se encontraron ${result.documents.length} registros.` : `OT disponible. Se encontraron ${result.documents.length} documentos relacionados.`);
     } catch (error) {
-      setLoadMessage(error instanceof Error ? error.message : (searchType === 'guia' ? 'No se pudo buscar el documento misceláneo.' : 'No se pudo buscar la OT.'));
+      setLoadMessage(error instanceof Error ? error.message : (searchType === 'guia' ? 'No se pudo buscar la guia fisica.' : 'No se pudo buscar la OT.'));
     }
   }
 
@@ -473,7 +476,7 @@ export function NewGuidePage() {
               }}
             >
               <option value="ot">OT</option>
-              <option value="guia">MISCELÁNEA</option>
+              <option value="guia">GUIA FISICA 001/003</option>
             </select>
             <input
               value={form.searchText}
@@ -484,7 +487,7 @@ export function NewGuidePage() {
                   void loadDocument();
                 }
               }}
-              placeholder={searchType === 'guia' ? "Serie-Número (ej: 001-0112866)" : "Número de OT"}
+              placeholder={searchType === 'guia' ? "Serie-Numero (ej: 001-0112866 o 003-0006698)" : "Número de OT"}
             />
             <button type="button" className="tool-button primary-tool" onClick={loadDocument}>
               <Search size={16} />
@@ -532,9 +535,9 @@ export function NewGuidePage() {
                   : ''
               }
               readOnly
-              placeholder={searchType === 'guia' ? "Se completa al buscar Miscelánea" : "Se completa al buscar la OT"}
+              placeholder={searchType === 'guia' ? "Se completa al buscar la guia fisica" : "Se completa al buscar la OT"}
             />
-            <button type="button" className="icon-button" title={searchType === 'guia' ? "Destinatario automático desde Miscelánea" : "Destinatario automático desde OT"} disabled>
+            <button type="button" className="icon-button" title={searchType === 'guia' ? "Destinatario automatico desde guia fisica" : "Destinatario automático desde OT"} disabled>
               <Wrench size={18} />
             </button>
           </div>
@@ -684,7 +687,7 @@ export function NewGuidePage() {
                 <tr>
                   <td colSpan={7} className="empty-row">
                     {searchType === 'guia' 
-                      ? 'Busque un documento misceláneo para cargar productos desde VW_DETGUIA_REMISION.' 
+                      ? 'Busque una guia fisica 001/003 para cargar productos desde VW_DETGUIA_REMISION.' 
                       : 'Busque una OT para cargar productos desde VW_DETGUIA_REMISION.'}
                   </td>
                 </tr>
