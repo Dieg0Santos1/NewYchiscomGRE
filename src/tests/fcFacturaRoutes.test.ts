@@ -128,7 +128,10 @@ const fcFacturaService: FcFacturaService = {
       pdfDisponible: true
     }
   ]),
-  getFacturaPdfUrl: vi.fn().mockResolvedValue('https://sfeintegrador.bizlinks.com.pe/pdf/FF01-00000001.pdf')
+  getFacturaPdf: vi.fn().mockResolvedValue({
+    kind: 'url',
+    url: 'https://sfeintegrador.bizlinks.com.pe/pdf/FF01-00000001.pdf'
+  })
 };
 
 describe('fc-facturas routes', () => {
@@ -265,6 +268,24 @@ describe('fc-facturas routes', () => {
       .get('/api/fc-facturas/FF01-00000001/pdf')
       .expect(302)
       .expect('Location', 'https://sfeintegrador.bizlinks.com.pe/pdf/FF01-00000001.pdf');
+  });
+
+  it('entrega directamente el PDF binario descargado por Bizlinks', async () => {
+    const pdf = Buffer.from('%PDF-1.4\nPDF DE PRUEBA');
+    const service: FcFacturaService = {
+      ...fcFacturaService,
+      getFacturaPdf: vi.fn().mockResolvedValue({ kind: 'buffer', data: pdf })
+    };
+    const app = createApp({ config: testConfig, fcFacturaService: service });
+
+    await request(app)
+      .get('/api/fc-facturas/FF01-00000001/pdf')
+      .expect(200)
+      .expect('Content-Type', /application\/pdf/)
+      .expect('Content-Disposition', 'inline; filename="FF01-00000001.pdf"')
+      .expect((response) => {
+        expect(response.body).toEqual(pdf);
+      });
   });
 
   it('requiere confirmacion explicita para declarar factura FC', async () => {

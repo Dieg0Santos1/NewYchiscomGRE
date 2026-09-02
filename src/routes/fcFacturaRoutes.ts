@@ -100,9 +100,9 @@ export function fcFacturaRoutes(
         return;
       }
 
-      const pdfUrl = await service.getFacturaPdfUrl(serieNumeroFactura);
+      const pdf = await service.getFacturaPdf(serieNumeroFactura);
 
-      if (!pdfUrl) {
+      if (!pdf) {
         res.status(404).json({
           error: 'PDF_NOT_AVAILABLE',
           message: 'El PDF aun no esta disponible para esta factura'
@@ -110,7 +110,15 @@ export function fcFacturaRoutes(
         return;
       }
 
-      res.redirect(302, pdfUrl);
+      if (pdf.kind === 'buffer') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${serieNumeroFactura}.pdf"`);
+        res.setHeader('Content-Length', String(pdf.data.length));
+        res.status(200).send(pdf.data);
+        return;
+      }
+
+      res.redirect(302, pdf.url);
     } catch (error) {
       next(error);
     }

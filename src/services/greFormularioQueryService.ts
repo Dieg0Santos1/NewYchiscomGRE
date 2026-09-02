@@ -4,6 +4,7 @@ import type { ExistingGreClient, GreDestino } from '../integrations/existingGreC
 import { createExistingGreClient, ExistingGreClientError } from '../integrations/existingGreClient.js';
 import { createBizlinksPool, createGreFcPool, createYchiPool, sql } from '../integrations/bizlinksSql.js';
 import { isEligibleForManualSunatMessage } from './greFormularioManualSunatService.js';
+import { getDownloadedPdf, type PdfDelivery } from './bizlinksPdfDownloadService.js';
 
 export type WorkOrderProduct = {
   codigoProducto: string;
@@ -754,7 +755,7 @@ export class GreFormularioQueryService {
     }
   }
 
-  async getGuidePdfUrl(serieNumeroGuia: string) {
+  async getGuidePdf(serieNumeroGuia: string): Promise<PdfDelivery | null> {
     if (!GRE_FC_SERIE_PATTERN.test(serieNumeroGuia)) {
       return null;
     }
@@ -777,6 +778,11 @@ export class GreFormularioQueryService {
 
       if ((trace.recordset[0]?.total ?? 0) !== 1) return null;
 
+      const downloadedPdf = await getDownloadedPdf(bizlinksPool, this.config, '09', serieNumeroGuia);
+      if (downloadedPdf) {
+        return { kind: 'buffer', data: downloadedPdf };
+      }
+
       const pdfRequest = new sql.Request(bizlinksPool);
       pdfRequest.input('serieNumeroGuia', sql.VarChar(20), serieNumeroGuia);
 
@@ -793,7 +799,7 @@ export class GreFormularioQueryService {
         return null;
       }
 
-      return isAllowedBizlinksFileUrl(url) ? url : null;
+      return isAllowedBizlinksFileUrl(url) ? { kind: 'url', url } : null;
     } finally {
       await bizlinksPool.close();
       await greFcPool.close();

@@ -148,9 +148,9 @@ export function greFormularioRoutes(
         return;
       }
 
-      const pdfUrl = await queryService.getGuidePdfUrl(serieNumeroGuia);
+      const pdf = await queryService.getGuidePdf(serieNumeroGuia);
 
-      if (!pdfUrl) {
+      if (!pdf) {
         res.status(404).json({
           error: 'PDF_NOT_AVAILABLE',
           message: 'El PDF aun no esta disponible para esta guia'
@@ -158,7 +158,15 @@ export function greFormularioRoutes(
         return;
       }
 
-      res.redirect(302, pdfUrl);
+      if (pdf.kind === 'buffer') {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${serieNumeroGuia}.pdf"`);
+        res.setHeader('Content-Length', String(pdf.data.length));
+        res.status(200).send(pdf.data);
+        return;
+      }
+
+      res.redirect(302, pdf.url);
     } catch (error) {
       next(error);
     }

@@ -8,6 +8,7 @@ import {
   FC_FACTURA_SERIE_NUMERO_PREVIEW,
   type FcFacturaPreviewInput
 } from '../schemas/fcFacturaSchema.js';
+import { getDownloadedPdf, type PdfDelivery } from './bizlinksPdfDownloadService.js';
 
 export type FcFacturaCliente = {
   id: string;
@@ -174,7 +175,7 @@ export interface FcFacturaService {
   }>;
   declarar(input: FcFacturaPreviewInput, options: FcFacturaDeclareOptions): Promise<FcFacturaDeclareResult>;
   listFacturas(): Promise<FcFacturaStatusResult[]>;
-  getFacturaPdfUrl(serieNumeroFactura: string): Promise<string | null>;
+  getFacturaPdf(serieNumeroFactura: string): Promise<PdfDelivery | null>;
 }
 
 export class DirectDbFcFacturaService implements FcFacturaService {
@@ -576,7 +577,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
     }
   }
 
-  async getFacturaPdfUrl(serieNumeroFactura: string): Promise<string | null> {
+  async getFacturaPdf(serieNumeroFactura: string): Promise<PdfDelivery | null> {
     const greFcPool = createGreFcPool(this.config);
     const bizlinksPool = createBizlinksPool(this.config);
 
@@ -594,6 +595,11 @@ export class DirectDbFcFacturaService implements FcFacturaService {
 
       if ((trace.recordset[0]?.total ?? 0) !== 1) return null;
 
+      const downloadedPdf = await getDownloadedPdf(bizlinksPool, this.config, '01', serieNumeroFactura);
+      if (downloadedPdf) {
+        return { kind: 'buffer', data: downloadedPdf };
+      }
+
       const pdfRequest = new sql.Request(bizlinksPool);
       pdfRequest.input('serieNumeroFactura', sql.VarChar(13), serieNumeroFactura);
       const pdf = await pdfRequest.query<{ bl_url_pdf: string | null }>(`
@@ -605,7 +611,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
       `);
       const url = pdf.recordset[0]?.bl_url_pdf?.trim();
 
-      return url && isAllowedBizlinksFileUrl(url) ? url : null;
+      return url && isAllowedBizlinksFileUrl(url) ? { kind: 'url', url } : null;
     } finally {
       await bizlinksPool.close();
       await greFcPool.close();
