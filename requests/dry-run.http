@@ -1,0 +1,55 @@
+@baseUrl = http://localhost:3001
+
+### Health
+GET {{baseUrl}}/health
+
+### GRE dry-run formularios continuos
+POST {{baseUrl}}/api/gre/dry-run
+Content-Type: application/json
+
+{
+  "serieNumeroGuia": "T999-00000095",
+  "fechaEmisionGuia": "2026-07-20",
+  "horaEmisionGuia": "09:41:00",
+  "fechaInicioTraslado": "2026-07-20",
+  "fechaEntregaBienes": "2026-07-20",
+  "observaciones": "PRUEBA REAL CONTROLADA FORMULARIOS CONTINUOS",
+  "correoDestinatario": "boritz@llerenapinedo.com",
+  "destinatario": {
+    "tipoDocumentoDestinatario": "6",
+    "numeroDocumentoDestinatario": "10406265574",
+    "razonSocialDestinatario": "ORLANDO BORITZ LLERENA DELGADO"
+  },
+  "traslado": {
+    "motivoTraslado": "01",
+    "descripcionMotivoTraslado": "VENTA",
+    "pesoBrutoTotalBienes": 1,
+    "unidadMedidaPesoBruto": "KGM",
+    "modalidadTraslado": "02",
+    "numeroBultos": 1,
+    "ubigeoPtoLlegada": "150101",
+    "direccionPtoLlegada": "-AV. TOMÁS VALLE 917 DPTO. T-404",
+    "codigoPtoLlegada": "1"
+  },
+  "conductor": {
+    "tipoDocumentoConductor": "1",
+    "numeroDocumentoConductor": "09517108",
+    "nombreConductor": "JUAN JOSE",
+    "apellidoConductor": "APARICIO HERRERA",
+    "numeroLicencia": "Q09517108"
+  },
+  "vehiculo": {
+    "numeroPlacaVehiculoPrin": "A45895"
+  },
+  "items": [
+    {
+      "codigoEmpaque": 9000001,
+      "codigoProducto": "878866",
+      "descripcion": "ROLLOS TERMICO 20.30 cm. X 7.95 cm. X 1, Juego X 1, SERIE: 0, DEL: 0, AL: 0, TIRA:0, PAPEL: Bond, DESGLOSE: Ninguno, NUMERACIÓN: Sin dato, C.H.: , C.V.:",
+      "cantidad": 20,
+      "unidadMedida": "UND",
+      "id": "ID-UNICO-FC-T999-00000093"
+    }
+  ]
+}
+

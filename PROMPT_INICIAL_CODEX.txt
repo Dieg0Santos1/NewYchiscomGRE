@@ -1,0 +1,26 @@
+Lee completamente CONTEXTO_GRE_FORMULARIOS_CONTINUOS.md antes de programar.
+
+Construye solamente la Fase 1: un backend mínimo y seguro en Node.js + TypeScript + Express para probar la integración de GRE de formularios continuos con la API existente.
+
+Reglas:
+
+1. No conectes todavía a SQL Server.
+2. No hagas INSERT, UPDATE, DELETE ni ALTER.
+3. No llames realmente a SUNAT/Bizlinks por defecto.
+4. Implementa DRY_RUN=true por defecto.
+5. Crea GET /health, POST /api/gre/dry-run y POST /api/gre/send-test.
+6. send-test solo puede llamar a la API real si DRY_RUN=false, la serie comienza por T999- y existe X-Confirm-Send: YES.
+7. Usa Zod para validar serie T999 con 8 dígitos, cantidad mayor que cero, documentos, fechas, peso, al menos un detalle y campos de conductor si modalidadTraslado es 02.
+8. Aísla el cliente HTTP en src/integrations/existingGreClient.ts.
+9. El token debe salir únicamente de EXISTING_GRE_API_TOKEN.
+10. Nunca muestres el token en logs, responses o excepciones.
+11. Añade timeout y manejo de errores HTTP.
+12. Crea un mapper desde un DTO simple de formularios continuos al payload completo de /api/SPE_DESPATCH/declarar.
+13. Mantén como configuración los datos del remitente y punto de partida.
+14. Incluye .env.example y .gitignore.
+15. Incluye pruebas unitarias con Vitest.
+16. Incluye README con comandos exactos y ejemplos curl sanitizados.
+17. No inventes endpoints distintos al validado.
+18. No hagas ninguna llamada real hasta que yo revise el código.
+
+Antes de modificar archivos, presenta un plan breve, la estructura de carpetas y los riesgos. Luego implementa por etapas y ejecuta typecheck y tests.

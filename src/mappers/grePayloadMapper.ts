@@ -1,0 +1,148 @@
+import type { GreDefaults } from '../config/greDefaults.js';
+import type { GreInputDto } from '../schemas/greInputSchema.js';
+
+export type GrePayload = ReturnType<typeof mapGreInputToPayload>;
+
+const empty = '';
+
+type GreInputWithOptionalTransportista = GreInputDto & {
+  transportista?: {
+    tipoDocumentoTransportista: string;
+    numeroRucTransportista: string;
+    razonSocialTransportista: string;
+  };
+};
+
+export function mapGreInputToPayload(input: GreInputWithOptionalTransportista, defaults: GreDefaults) {
+  const conductor = input.conductor;
+  const vehiculo = input.vehiculo;
+  const transportista = input.transportista;
+  const isPrivateTransport = input.traslado.modalidadTraslado === '02';
+  const isPublicTransport = input.traslado.modalidadTraslado === '01';
+
+  return {
+    tipoDocumentoRemitente: defaults.remitente.tipoDocumento,
+    numeroDocumentoRemitente: defaults.remitente.numeroDocumento,
+    serieNumeroGuia: input.serieNumeroGuia,
+    tipoDocumentoGuia: '09',
+    bl_estadoRegistro: 'N',
+    bl_reintento: 0,
+    bl_origen: 'W',
+    bl_hasFileResponse: 0,
+    fechaEmisionGuia: input.fechaEmisionGuia,
+    horaEmisionGuia: input.horaEmisionGuia,
+    fechaInicioTraslado: input.fechaInicioTraslado,
+    fechaEntregaBienes: input.fechaEntregaBienes,
+    observaciones: input.observaciones,
+    razonSocialRemitente: defaults.remitente.razonSocial,
+    correoRemitente: defaults.remitente.correo,
+    correoDestinatario: input.correoDestinatario,
+    numeroDocumentoDestinatario: input.destinatario.numeroDocumentoDestinatario,
+    tipoDocumentoDestinatario: input.destinatario.tipoDocumentoDestinatario,
+    razonSocialDestinatario: input.destinatario.razonSocialDestinatario,
+    motivoTraslado: input.traslado.motivoTraslado,
+    descripcionMotivoTraslado: input.traslado.descripcionMotivoTraslado,
+    pesoBrutoTotalBienes: String(input.traslado.pesoBrutoTotalBienes),
+    unidadMedidaPesoBruto: input.traslado.unidadMedidaPesoBruto,
+    modalidadTraslado: input.traslado.modalidadTraslado,
+    numeroBultos: String(input.traslado.numeroBultos),
+    codigoPuerto: empty,
+    idEntrega: empty,
+    ubigeoPtoPartida: defaults.puntoPartida.ubigeo,
+    direccionPtoPartida: defaults.puntoPartida.direccion,
+    ubigeoPtoLLegada: input.traslado.ubigeoPtoLlegada,
+    direccionPtoLLegada: input.traslado.direccionPtoLlegada,
+    codigoPtollegada: input.traslado.codigoPtoLlegada,
+    tipoDocumentoConductor: isPrivateTransport ? (conductor?.tipoDocumentoConductor ?? empty) : empty,
+    numeroDocumentoConductor: isPrivateTransport ? (conductor?.numeroDocumentoConductor ?? empty) : empty,
+    nombreConductor: isPrivateTransport ? (conductor?.nombreConductor ?? empty) : empty,
+    apellidoConductor: isPrivateTransport ? (conductor?.apellidoConductor ?? empty) : empty,
+    numeroLicencia: isPrivateTransport ? (conductor?.numeroLicencia ?? empty) : empty,
+    numeroPlacaVehiculoPrin: isPrivateTransport ? (vehiculo?.numeroPlacaVehiculoPrin ?? empty) : empty,
+    numeroPlacaVehiculoSec1: empty,
+    numeroAutorizacionRem: empty,
+    codigoAutorizadoRem: empty,
+    tipoDocumentoComprador: empty,
+    numeroDocumentoComprador: empty,
+    razonSocialComprador: empty,
+    tipoEvento: empty,
+    numeroAutorizacionTrans: empty,
+    codigoAutorizadoTrans: empty,
+    tarjetaUnicaCirculacionPrin: empty,
+    numeroAutorizacionVehPrin: empty,
+    codigoAutorizadoVehPrin: empty,
+    numeroPlacaVehiculoSec2: empty,
+    tarjetaUnicaCirculacionSec1: empty,
+    tarjetaUnicaCirculacionSec2: empty,
+    numeroAutorizacionVehSec1: empty,
+    numeroAutorizacionVehSec2: empty,
+    codigoAutorizadoVehSec1: empty,
+    codigoAutorizadoVehSec2: empty,
+    numeroDocumentoConductorSec1: empty,
+    tipoDocumentoConductorSec1: empty,
+    nombreConductorSec1: empty,
+    apellidoConductorSec1: empty,
+    numeroLicenciaSec1: empty,
+    numeroDocumentoConductorSec2: empty,
+    tipoDocumentoConductorSec2: empty,
+    nombreConductorSec2: empty,
+    apellidoConductorSec2: empty,
+    numeroLicenciaSec2: empty,
+    numeroDocumentoPtoLlegada: empty,
+    ptoLlegadaLongitud: empty,
+    ptoLlegadaLatitud: empty,
+    numeroDocumentoPtoPartida: empty,
+    codigoPtoPartida: empty,
+    ptoPartidaLongitud: empty,
+    ptoPartidaLatitud: empty,
+    tipoLocacion: empty,
+    codigoAeropuerto: empty,
+    nombrePuertoAeropuerto: empty,
+    serieGuiaBaja: empty,
+    codigoGuiaBaja: empty,
+    tipoGuiaBaja: empty,
+    numeroDocumentoRelacionado: empty,
+    codigoDocumentoRelacionado: empty,
+    numeroDocumentoEstablecimiento: empty,
+    tipoDocumentoEstablecimiento: empty,
+    razonSocialEstablecimiento: empty,
+    numeroRucTransportista: isPublicTransport ? (transportista?.numeroRucTransportista ?? empty) : empty,
+    tipoDocumentoTransportista: isPublicTransport ? (transportista?.tipoDocumentoTransportista ?? empty) : empty,
+    razonSocialTransportista: isPublicTransport ? (transportista?.razonSocialTransportista ?? empty) : empty,
+    numeroRegistroMTC: empty,
+    indTransbordoProgramado: empty,
+    indRetornoVehiculoEnvaseVacio: empty,
+    indRetornoVehiculoVacio: empty,
+    indTrasVehiculoCatM1L: empty,
+    indRegVehiculoyCond: empty,
+    indTrasladoTotalDAMoDS: empty,
+    numeroContenedor1: empty,
+    numeroContenedor2: empty,
+    numeroPrecinto1: empty,
+    numeroPrecinto2: empty,
+    pesoBrutoTotalItem: empty,
+    unidadMedidaPesoBrutoItem: empty,
+    sustentoPesoBrutoTotal: empty,
+    bL_SOURCEFILE: empty,
+    bl_createdAt: null,
+    spE_DESPATCH_ITEM: input.items.map((item, index) => ({
+      codigoEmpaque: item.codigoEmpaque,
+      codigoProducto: item.codigoProducto,
+      descripcion: item.descripcion,
+      cantidad: String(item.cantidad),
+      unidadMedida: item.unidadMedida,
+      moneda: item.moneda,
+      tipoCambio: null,
+      importeUnitarioSinImpuesto: item.importeUnitarioSinImpuesto,
+      serieNumeroGuiaRemision: null,
+      serieNumeroGuiaFactura: null,
+      ordenguia: null,
+      ordenfactura: null,
+      id: item.id ?? `${input.serieNumeroGuia}-${index + 1}`,
+      unidadmedida: item.unidadMedida,
+      codigo: item.codigoProducto,
+      cliente: input.destinatario.numeroDocumentoDestinatario
+    })),
+    SPE_DESPATCH_DOCRELACIONADO: []
+  };
+}

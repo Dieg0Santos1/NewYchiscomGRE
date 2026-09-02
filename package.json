@@ -1,0 +1,42 @@
+{
+  "name": "newsystem-gre",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "build:frontend": "npm --prefix frontend run build",
+    "build:prod": "npm run build:frontend && npm run build",
+    "start": "node dist/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "migrate:status": "tsx src/scripts/migrateStatus.ts",
+    "db:check": "tsx src/scripts/dbCheck.ts",
+    "gre:test:preview": "tsx src/scripts/greTest/preview.ts",
+    "gre:test:send": "tsx src/scripts/greTest/send.ts",
+    "gre:test:verify": "tsx src/scripts/greTest/verify.ts",
+    "gre:test:diff": "tsx src/scripts/greTest/diff.ts",
+    "gre:test:diagnose-e": "tsx src/scripts/greTest/diagnoseE.ts",
+    "gre:test:activate": "tsx src/scripts/greTest/activate.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mssql": "^12.7.0",
+    "pino": "^10.1.0",
+    "pino-http": "^11.0.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^24.10.1",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  }
+}

@@ -1,0 +1,46 @@
+/*
+  Amplia los estados de trazabilidad para la activacion controlada de GRE FC.
+  No toca YCHIDB3, BIZLINKS_PROD21, EMPAQUE, EMPAQUE_DETALLE ni tablas SPE.
+*/
+
+USE GRE_FORMULARIOS_TEST;
+GO
+
+IF OBJECT_ID(N'dbo.GRE_FC_SCHEMA_MIGRATION', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.GRE_FC_SCHEMA_MIGRATION
+    (
+        id int IDENTITY(1,1) NOT NULL CONSTRAINT PK_GRE_FC_SCHEMA_MIGRATION PRIMARY KEY,
+        version varchar(50) NOT NULL CONSTRAINT UQ_GRE_FC_SCHEMA_MIGRATION_version UNIQUE,
+        descripcion nvarchar(250) NOT NULL,
+        aplicadoEn datetime2(3) NOT NULL CONSTRAINT DF_GRE_FC_SCHEMA_MIGRATION_aplicadoEn DEFAULT SYSUTCDATETIME()
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.GRE_FC_SCHEMA_MIGRATION WHERE version = '002_add_activation_states')
+BEGIN
+    IF OBJECT_ID(N'dbo.CK_GRE_FC_OPERACION_estado', N'C') IS NOT NULL
+    BEGIN
+        ALTER TABLE dbo.GRE_FC_OPERACION
+            DROP CONSTRAINT CK_GRE_FC_OPERACION_estado;
+    END;
+
+    ALTER TABLE dbo.GRE_FC_OPERACION
+        ADD CONSTRAINT CK_GRE_FC_OPERACION_estado
+        CHECK (estado IN ('PREPARANDO', 'INSERTADO_BIZLINKS', 'ACTIVADO', 'ERROR'));
+
+    IF OBJECT_ID(N'dbo.CK_GRE_FC_ENVIO_estado', N'C') IS NOT NULL
+    BEGIN
+        ALTER TABLE dbo.GRE_FC_ENVIO
+            DROP CONSTRAINT CK_GRE_FC_ENVIO_estado;
+    END;
+
+    ALTER TABLE dbo.GRE_FC_ENVIO
+        ADD CONSTRAINT CK_GRE_FC_ENVIO_estado
+        CHECK (estado IN ('PREPARANDO', 'INSERTADO_BIZLINKS', 'ACTIVADO', 'ERROR'));
+
+    INSERT INTO dbo.GRE_FC_SCHEMA_MIGRATION (version, descripcion)
+    VALUES ('002_add_activation_states', N'Permite estado ACTIVADO para activacion controlada T999');
+END;
+GO
