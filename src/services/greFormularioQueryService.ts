@@ -1179,12 +1179,12 @@ async function getDestinosFromYchiByDocumentIds(pool: sql.ConnectionPool, ids: A
       ORDER BY d.orden, d.idClieDireccion
     `);
     const destinos = normalizeYchiDestinations(result.recordset);
-    const skippedRows = result.recordset.length - destinos.length;
+    const missingUbigeoRows = destinos.filter((destino) => !/^\d{6}$/.test(destino.ubigeo)).length;
 
     return {
       destinos,
-      warning: skippedRows > 0
-        ? `Se omitieron ${skippedRows} destino(s) de YCHIDB3 sin ubigeo valido.`
+      warning: missingUbigeoRows > 0
+        ? `${missingUbigeoRows} destino(s) de YCHIDB3 requieren completar ubigeo manualmente.`
         : ''
     };
   } catch (error) {
@@ -1204,18 +1204,18 @@ export function normalizeYchiDestinations(rows: YchiDestinationRow[]): GreDestin
     const ubigeo = row.ubigeo?.trim() ?? '';
     const direccion = normalizeHistoricalAddress(row.direccion);
 
-    if (!/^\d{6}$/.test(ubigeo) || !direccion) continue;
+    if (!direccion) continue;
 
     const codigoDestino = String(row.codigoDestino ?? byAddress.size + 1);
     const key = `${ubigeo}-${direccion.toUpperCase()}`;
 
     if (!byAddress.has(key)) {
       byAddress.set(key, {
-        id: `YCHIDB3-${row.idClieProv ?? 'CLIENTE'}-${row.idClieDireccion ?? 'PRINCIPAL'}-${ubigeo}`,
+        id: `YCHIDB3-${row.idClieProv ?? 'CLIENTE'}-${row.idClieDireccion ?? 'PRINCIPAL'}-${ubigeo || 'SINUBIGEO'}`,
         codigoDestino,
         ubigeo,
         direccion,
-        textoOriginal: `${ubigeo}-${direccion}`
+        textoOriginal: ubigeo ? `${ubigeo}-${direccion}` : direccion
       });
     }
   }

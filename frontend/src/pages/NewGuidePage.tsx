@@ -553,14 +553,14 @@ export function NewGuidePage() {
               <option value="">Seleccione destino</option>
               {destinationAddresses.map((address) => (
                 <option key={address.id} value={address.id}>
-                  {address.direccion}
+                  {address.ubigeo ? address.direccion : `${address.direccion} (complete ubigeo)`}
                 </option>
               ))}
             </select>
             <input
-              className="auto-field"
               value={form.ubigeoPtoLlegada}
-              readOnly
+              maxLength={6}
+              onChange={(event) => updateField('ubigeoPtoLlegada', event.target.value.replace(/\D/g, ''))}
               placeholder="Ubigeo"
             />
           </div>

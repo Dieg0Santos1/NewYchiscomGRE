@@ -69,7 +69,7 @@ describe('gre formularios YCHIDB3 destinations', () => {
     ]);
   });
 
-  it('omite destinos sin ubigeo valido y evita duplicados', () => {
+  it('conserva destinos sin ubigeo valido para completar manualmente y evita duplicados', () => {
     const destinos = normalizeYchiDestinations([
       {
         idClieProv: 4383,
@@ -94,7 +94,12 @@ describe('gre formularios YCHIDB3 destinations', () => {
       }
     ]);
 
-    expect(destinos).toHaveLength(1);
-    expect(destinos[0]?.codigoDestino).toBe('2');
+    expect(destinos).toHaveLength(2);
+    expect(destinos[0]).toMatchObject({
+      codigoDestino: '1',
+      ubigeo: '',
+      direccion: 'SIN UBIGEO'
+    });
+    expect(destinos[1]?.codigoDestino).toBe('2');
   });
 });
