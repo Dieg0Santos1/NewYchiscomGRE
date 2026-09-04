@@ -411,7 +411,7 @@ select.auto-field:disabled {
 .traslado-destination-line {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 150px 80px;
+  grid-template-columns: minmax(0, 1fr) 150px;
 }
 
 .recipient-picker {

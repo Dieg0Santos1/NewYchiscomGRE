@@ -537,16 +537,6 @@ export class GreFormularioQueryService {
     const normalized = numeroDocumento.trim();
     const warnings: string[] = [];
 
-    try {
-      const destinos = await this.existingGreClient.getDestinos(normalized);
-      if (destinos.length > 0) {
-        return { numeroDocumento: normalized, destinos, warnings };
-      }
-      warnings.push('La API existente no devolvio destinos.');
-    } catch (error) {
-      warnings.push(error instanceof Error ? error.message : 'No se pudo consultar la API existente.');
-    }
-
     const ychiAttempt = async () => {
       const ychiPool = createYchiPool(this.config);
       try {
@@ -589,8 +579,24 @@ export class GreFormularioQueryService {
     }
 
     const destinos = combineDestinations([...ychiDestinations, ...historicalDestinations]);
-    if (ychiDestinations.length > 0) warnings.push('Destino cargado desde YCHIDB3.');
-    else if (historicalDestinations.length > 0) warnings.push('Destino cargado desde historial Bizlinks.');
+    if (ychiDestinations.length > 0) {
+      warnings.push('Destino cargado desde YCHIDB3.');
+      return { numeroDocumento: normalized, destinos, warnings };
+    }
+    if (historicalDestinations.length > 0) {
+      warnings.push('Destino cargado desde historial Bizlinks.');
+      return { numeroDocumento: normalized, destinos, warnings };
+    }
+
+    try {
+      const apiDestinations = await this.existingGreClient.getDestinos(normalized);
+      if (apiDestinations.length > 0) {
+        return { numeroDocumento: normalized, destinos: apiDestinations, warnings };
+      }
+      warnings.push('La API existente no devolvio destinos.');
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : 'No se pudo consultar la API existente.');
+    }
 
     return { numeroDocumento: normalized, destinos, warnings };
   }

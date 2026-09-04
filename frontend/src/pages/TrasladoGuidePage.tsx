@@ -560,7 +560,6 @@ export function TrasladoGuidePage() {
               <input value={form.direccionPtoLlegada} maxLength={100} onChange={(event) => updateDestinationField('direccionPtoLlegada', event.target.value)} placeholder="Direccion de llegada" />
             )}
             <input value={form.ubigeoPtoLlegada} maxLength={6} onChange={(event) => updateDestinationField('ubigeoPtoLlegada', event.target.value.replace(/\D/g, ''))} placeholder="Ubigeo" />
-            <input value={form.codigoPtoLlegada} maxLength={4} onChange={(event) => updateDestinationField('codigoPtoLlegada', event.target.value)} placeholder="Codigo" />
           </div>
         </FormField>
 
