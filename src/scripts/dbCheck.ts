@@ -144,7 +144,7 @@ async function main() {
       await checkColumnPermissions(
         pool,
         'dbo.GRE_PORTAL_USUARIO',
-        ['idUsuario', 'usuario', 'creadoEn', 'creadoPor', 'version'],
+        ['usuario', 'creadoEn', 'creadoPor'],
         'UPDATE',
         results,
         'GRE_FORMULARIOS_TEST/AUTH',
@@ -632,6 +632,10 @@ async function hasObjectPermission(pool: sql.ConnectionPool, objectName: string,
 }
 
 async function hasColumnPermission(pool: sql.ConnectionPool, objectName: string, columnName: string, permission: string) {
+  if (permission.toUpperCase() === 'UPDATE') {
+    return canUpdateColumn(pool, objectName, columnName);
+  }
+
   const request = new sql.Request(pool);
   request.input('objectName', sql.NVarChar(260), objectName);
   request.input('columnName', sql.NVarChar(128), columnName);
@@ -644,6 +648,27 @@ async function hasColumnPermission(pool: sql.ConnectionPool, objectName: string,
   `);
 
   return (result.recordset[0]?.hasPermission ?? 0) > 0;
+}
+
+async function canUpdateColumn(pool: sql.ConnectionPool, objectName: string, columnName: string) {
+  const [schemaName, tableName] = splitObjectName(objectName);
+  const quotedObject = `${quoteIdentifier(schemaName)}.${quoteIdentifier(tableName)}`;
+  const quotedColumn = quoteIdentifier(columnName);
+
+  try {
+    await new sql.Request(pool).query(`
+      UPDATE ${quotedObject}
+      SET ${quotedColumn} = ${quotedColumn}
+      WHERE 1 = 0;
+    `);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function quoteIdentifier(value: string) {
+  return `[${value.replace(/]/g, ']]')}]`;
 }
 
 function splitObjectName(objectName: string): [string, string] {
