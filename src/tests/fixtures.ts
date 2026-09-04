@@ -10,6 +10,13 @@ export const testConfig: AppConfig = {
   requestTimeoutMs: 30000,
   directDbInsertEnabled: false,
   fcLegacyWriteEnabled: false,
+  auth: {
+    enabled: false,
+    sessionSecret: '',
+    usersFile: 'config/auth-users.json',
+    sessionHours: 12,
+    cookieSecure: false
+  },
   remitente: {
     tipoDocumento: '6',
     numeroDocumento: '20259402965',

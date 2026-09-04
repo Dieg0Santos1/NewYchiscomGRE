@@ -1,0 +1,11 @@
+{
+  "users": [
+    {
+      "username": "usuario-ejemplo",
+      "displayName": "Usuario de ejemplo",
+      "passwordHash": "GENERAR_CON_NPM_RUN_AUTH_USER",
+      "modules": ["traslado"],
+      "active": false
+    }
+  ]
+}

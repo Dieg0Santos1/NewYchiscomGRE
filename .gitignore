@@ -9,6 +9,7 @@ coverage/
 npm-debug.log*
 *.log
 *.local
+config/auth-users.json
 .gre-test/
 .codex-run/
 excel-audit-output/

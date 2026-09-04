@@ -5,6 +5,7 @@ import type { AppConfig } from './config/env.js';
 import { loadEnv } from './config/env.js';
 import { createExistingGreClient, type ExistingGreClient } from './integrations/existingGreClient.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { authenticateRequests, authorizeApiModules } from './middleware/auth.js';
 import { frontendAssets } from './middleware/frontendAssets.js';
 import { fcFacturaRoutes } from './routes/fcFacturaRoutes.js';
 import { fcLegacyWorkflowRoutes } from './routes/fcLegacyWorkflowRoutes.js';
@@ -16,6 +17,7 @@ import { greRoutes } from './routes/greRoutes.js';
 import { greTrasladoRoutes } from './routes/greTrasladoRoutes.js';
 import { healthRoutes } from './routes/healthRoutes.js';
 import { reportesEspecialesRoutes } from './routes/reportesEspecialesRoutes.js';
+import { authRoutes } from './routes/authRoutes.js';
 import { sanitizeValue } from './utils/sanitize.js';
 import type { FcFacturaService } from './services/fcFacturaService.js';
 import type { FlexoFacturaService } from './services/flexoFacturaService.js';
@@ -25,6 +27,7 @@ import type { GreFormularioReleaseOtService } from './services/greFormularioRele
 import type { GreTrasladoManualSunatService } from './services/greTrasladoManualSunatService.js';
 import type { GreTrasladoService } from './services/greTrasladoService.js';
 import type { ReportesEspecialesService } from './services/reportesEspecialesService.js';
+import { FileAuthenticationService, type AuthenticationService } from './services/authService.js';
 
 export function createApp(options?: {
   config?: AppConfig;
@@ -38,14 +41,21 @@ export function createApp(options?: {
   greTrasladoManualSunatService?: GreTrasladoManualSunatService;
   greTrasladoService?: GreTrasladoService;
   reportesEspecialesService?: ReportesEspecialesService;
+  authenticationService?: AuthenticationService;
 }) {
   const config = options?.config ?? loadEnv();
   const logger = pino({
     level: config.nodeEnv === 'test' ? 'silent' : 'info',
-    redact: ['req.headers.token', 'req.headers.authorization']
+    redact: [
+      'req.headers.token',
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'res.headers["set-cookie"]'
+    ]
   });
   const app = express();
   const existingGreClient = options?.existingGreClient ?? createExistingGreClient(config);
+  const authenticationService = options?.authenticationService ?? new FileAuthenticationService(config);
 
   app.disable('x-powered-by');
   app.locals.config = config;
@@ -59,6 +69,9 @@ export function createApp(options?: {
     })
   );
   app.use(healthRoutes());
+  app.use(authRoutes(config, authenticationService));
+  app.use(authenticateRequests(authenticationService));
+  app.use(authorizeApiModules(config));
   app.use(greRoutes(config, existingGreClient));
   app.use(flexoRoutes(config));
   app.use(greFormularioRoutes(

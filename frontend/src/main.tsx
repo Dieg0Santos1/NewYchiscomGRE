@@ -10,6 +10,9 @@ import { NewGuidePage } from './pages/NewGuidePage';
 import { SpecialReportsPage } from './pages/SpecialReportsPage';
 import { TrasladoGuidePage } from './pages/TrasladoGuidePage';
 import { TrasladoReportPage } from './pages/TrasladoReportPage';
+import { LoginPage } from './pages/LoginPage';
+import { authService } from './services/AuthService';
+import type { AuthModule, AuthSessionResponse, AuthUser } from './types/auth';
 import './styles.css';
 
 const routes = new Set([
@@ -33,26 +36,58 @@ function readRoute() {
 
 function Shell() {
   const [route, setRoute] = useState(readRoute);
+  const [session, setSession] = useState<AuthSessionResponse | null>();
 
   useEffect(() => {
-    const onHashChange = () => setRoute(readRoute());
-    window.addEventListener('hashchange', onHashChange);
+    void authService.getSession()
+      .then(setSession)
+      .catch(() => setSession(null));
 
-    if (!window.location.hash || !routes.has(readRoute())) {
-      window.location.hash = '/guias/nueva';
-    }
-
-    return () => window.removeEventListener('hashchange', onHashChange);
+    const onExpired = () => setSession(null);
+    window.addEventListener('gre-auth-expired', onExpired);
+    return () => window.removeEventListener('gre-auth-expired', onExpired);
   }, []);
 
-  const navigate = (nextRoute: string) => {
-    if (routes.has(nextRoute)) {
+  useEffect(() => {
+    if (!session) return;
+
+    const syncRoute = () => {
+      const requested = readRoute();
+      const nextRoute = isRouteAllowed(requested, session.user)
+        ? requested
+        : defaultRoute(session.user.modules);
       setRoute(nextRoute);
+      if (window.location.hash !== `#${nextRoute}`) window.location.hash = nextRoute;
+    };
+    const onHashChange = () => syncRoute();
+    window.addEventListener('hashchange', onHashChange);
+    syncRoute();
+
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [session]);
+
+  const navigate = (nextRoute: string) => {
+    if (session && routes.has(nextRoute) && isRouteAllowed(nextRoute, session.user)) {
+      setRoute(nextRoute);
+      window.location.hash = nextRoute;
     }
   };
 
+  if (session === undefined) {
+    return <main className="login-screen"><div className="login-loading">Validando acceso...</div></main>;
+  }
+
+  if (session === null) {
+    return <LoginPage onAuthenticated={setSession} />;
+  }
+
+  const logout = async () => {
+    await authService.logout().catch(() => undefined);
+    setSession(null);
+  };
+
   return (
-    <App route={route} onNavigate={navigate}>
+    <App route={route} onNavigate={navigate} user={session.user} onLogout={() => void logout()}>
       {route === '/fc/pre-guias'
         ? <FcLegacyWorkflowPage mode="pre-guide" />
         : route === '/fc/guias-internas'
@@ -76,6 +111,22 @@ function Shell() {
             : <NewGuidePage />}
     </App>
   );
+}
+
+function moduleForRoute(route: string): AuthModule {
+  if (route.startsWith('/traslado')) return 'traslado';
+  if (route.startsWith('/flexo')) return 'flexo';
+  return 'fc';
+}
+
+function isRouteAllowed(route: string, user: AuthUser) {
+  return routes.has(route) && user.modules.includes(moduleForRoute(route));
+}
+
+function defaultRoute(modules: AuthModule[]) {
+  if (modules.includes('fc')) return '/guias/nueva';
+  if (modules.includes('flexo')) return '/flexo/guias/nueva';
+  return '/traslado/guias/nueva';
 }
 
 function FlexoPlaceholder({ title }: { title: string }) {

@@ -28,6 +28,11 @@ const envSchema = z.object({
   GRE_PARTIDA_DIRECCION: z.string().min(1).default('AV. LUNA PIZARRO 1328-1340, LA VICTORIA'),
   GRE_DIRECT_DB_INSERT_ENABLED: booleanFromEnv.default(false),
   FC_LEGACY_WRITE_ENABLED: disabledBooleanFromEnv,
+  AUTH_ENABLED: disabledBooleanFromEnv,
+  AUTH_SESSION_SECRET: z.string().optional().default(''),
+  AUTH_USERS_FILE: z.string().min(1).default('config/auth-users.json'),
+  AUTH_SESSION_HOURS: z.coerce.number().int().positive().max(24).default(12),
+  AUTH_COOKIE_SECURE: disabledBooleanFromEnv,
   GRE_FC_SQL_SERVER: z.string().optional().default(''),
   GRE_FC_SQL_PORT: z.coerce.number().int().positive().default(1433),
   GRE_FC_SQL_DATABASE: z.string().optional().default('GRE_FORMULARIOS_TEST'),
@@ -79,6 +84,13 @@ export type AppConfig = {
   requestTimeoutMs: number;
   directDbInsertEnabled: boolean;
   fcLegacyWriteEnabled: boolean;
+  auth: {
+    enabled: boolean;
+    sessionSecret: string;
+    usersFile: string;
+    sessionHours: number;
+    cookieSecure: boolean;
+  };
   remitente: {
     tipoDocumento: string;
     numeroDocumento: string;
@@ -99,6 +111,10 @@ export type AppConfig = {
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.parse(source);
 
+  if (parsed.AUTH_ENABLED && parsed.AUTH_SESSION_SECRET.length < 32) {
+    throw new Error('AUTH_SESSION_SECRET debe tener al menos 32 caracteres cuando AUTH_ENABLED=true');
+  }
+
   return {
     port: parsed.PORT,
     nodeEnv: parsed.NODE_ENV,
@@ -108,6 +124,13 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppConfig {
     requestTimeoutMs: parsed.GRE_REQUEST_TIMEOUT_MS,
     directDbInsertEnabled: parsed.GRE_DIRECT_DB_INSERT_ENABLED,
     fcLegacyWriteEnabled: parsed.FC_LEGACY_WRITE_ENABLED,
+    auth: {
+      enabled: parsed.AUTH_ENABLED,
+      sessionSecret: parsed.AUTH_SESSION_SECRET,
+      usersFile: parsed.AUTH_USERS_FILE,
+      sessionHours: parsed.AUTH_SESSION_HOURS,
+      cookieSecure: parsed.AUTH_COOKIE_SECURE
+    },
     remitente: {
       tipoDocumento: parsed.GRE_REMITENTE_TIPO_DOCUMENTO,
       numeroDocumento: parsed.GRE_REMITENTE_NUMERO_DOCUMENTO,

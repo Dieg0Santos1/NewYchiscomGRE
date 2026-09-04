@@ -13,6 +13,8 @@
     "migrate": "tsx src/scripts/migrate.ts",
     "migrate:status": "tsx src/scripts/migrateStatus.ts",
     "db:check": "tsx src/scripts/dbCheck.ts",
+    "auth:user": "tsx src/scripts/authUser.ts",
+    "auth:check": "tsx src/scripts/authCheck.ts",
     "gre:test:preview": "tsx src/scripts/greTest/preview.ts",
     "gre:test:send": "tsx src/scripts/greTest/send.ts",
     "gre:test:verify": "tsx src/scripts/greTest/verify.ts",

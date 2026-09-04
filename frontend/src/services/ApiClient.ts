@@ -26,6 +26,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null) as unknown;
 
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('gre-auth-expired'));
     const message = body && typeof body === 'object' && 'issues' in body
       ? formatValidationIssues((body as { issues?: unknown }).issues)
       : body && typeof body === 'object' && 'message' in body

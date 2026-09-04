@@ -10,6 +10,7 @@ Backend minimo para construir y validar payloads GRE de formularios continuos an
 - No se crean objetos en `YCHIDB3` ni `BIZLINKS_PROD21`.
 - No se usa `EMPAQUE` ni `EMPAQUE_DETALLE` para formularios continuos.
 - No expone el token en logs, respuestas ni errores.
+- El acceso por usuario y permisos de módulo se configura según [docs/ACCESOS_PORTAL.md](docs/ACCESOS_PORTAL.md).
 - `POST /api/gre/send-test` esta bloqueado mientras `DRY_RUN=true`.
 - El envio real no debe habilitarse hasta validacion manual del codigo.
 

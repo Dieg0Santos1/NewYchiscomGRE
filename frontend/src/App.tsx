@@ -1,12 +1,15 @@
 import type { ReactNode } from 'react';
+import type { AuthModule, AuthUser } from './types/auth';
 
 type AppProps = {
   route: string;
   onNavigate: (route: string) => void;
   children: ReactNode;
+  user: AuthUser;
+  onLogout: () => void;
 };
 
-export default function App({ route, onNavigate, children }: AppProps) {
+export default function App({ route, onNavigate, children, user, onLogout }: AppProps) {
   const isActive = (target: string) => (route === target ? 'active' : undefined);
   const module = route.startsWith('/flexo') ? 'flexo' : route.startsWith('/traslado') ? 'traslado' : 'fc';
   const routes = module === 'flexo'
@@ -30,7 +33,7 @@ export default function App({ route, onNavigate, children }: AppProps) {
         especiales: '/reportes/especiales'
       };
 
-  const switchModule = (nextModule: 'fc' | 'flexo' | 'traslado') => {
+  const switchModule = (nextModule: AuthModule) => {
     if (nextModule === module) return;
     onNavigate(
       nextModule === 'flexo'
@@ -46,10 +49,13 @@ export default function App({ route, onNavigate, children }: AppProps) {
       <header className={`topbar topbar-${module}`}>
         <div className="topbar-main">
           <div className="topbar-title">Ychiformas - Facturacion</div>
-          <div className="module-switch" aria-label="Rubro">
-            <button type="button" className={module === 'fc' ? 'active' : ''} onClick={() => switchModule('fc')}>FC</button>
-            <button type="button" className={module === 'flexo' ? 'active' : ''} onClick={() => switchModule('flexo')}>Flexo</button>
-            <button type="button" className={module === 'traslado' ? 'active' : ''} onClick={() => switchModule('traslado')}>Traslado</button>
+          <div className="topbar-account">
+            <div className="module-switch" aria-label="Módulo">
+              {user.modules.includes('fc') && <button type="button" className={module === 'fc' ? 'active' : ''} onClick={() => switchModule('fc')}>FC</button>}
+              {user.modules.includes('flexo') && <button type="button" className={module === 'flexo' ? 'active' : ''} onClick={() => switchModule('flexo')}>Flexo</button>}
+              {user.modules.includes('traslado') && <button type="button" className={module === 'traslado' ? 'active' : ''} onClick={() => switchModule('traslado')}>Guía 2</button>}
+            </div>
+            <span className="session-user">{user.displayName}</span>
           </div>
         </div>
         <nav className="topbar-nav" aria-label="Principal">
@@ -95,7 +101,7 @@ export default function App({ route, onNavigate, children }: AppProps) {
               Especiales
             </a>
           )}
-          <a aria-disabled="true">Salir</a>
+          <button type="button" className="logout-button" onClick={onLogout}>Salir</button>
         </nav>
       </header>
       <main className="page">
