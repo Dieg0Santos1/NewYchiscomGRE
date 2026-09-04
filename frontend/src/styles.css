@@ -2372,6 +2372,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   white-space: nowrap;
 }
 
+.admin-edit-access {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
 .admin-access-message {
   margin-bottom: 14px;
 }
@@ -2565,6 +2574,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .admin-module-options input {
   min-height: auto;
   width: auto;
+}
+
+.admin-access-switches {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .admin-access-actions {

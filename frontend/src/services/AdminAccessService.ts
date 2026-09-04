@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from './ApiClient';
-import type { AuthAccess, CreateAuthAccess } from '../types/auth';
+import { apiGet, apiPatch, apiPost } from './ApiClient';
+import type { AuthAccess, CreateAuthAccess, UpdateAuthAccess } from '../types/auth';
 
 type AccessListResponse = {
   ok: boolean;
@@ -7,6 +7,11 @@ type AccessListResponse = {
 };
 
 type AccessCreatedResponse = {
+  ok: boolean;
+  access: AuthAccess;
+};
+
+type AccessUpdatedResponse = {
   ok: boolean;
   access: AuthAccess;
 };
@@ -19,6 +24,11 @@ export const adminAccessService = {
 
   async create(input: CreateAuthAccess) {
     const response = await apiPost<AccessCreatedResponse>('/api/admin/accesses', input);
+    return response.access;
+  },
+
+  async update(username: string, input: UpdateAuthAccess) {
+    const response = await apiPatch<AccessUpdatedResponse>(`/api/admin/accesses/${encodeURIComponent(username)}`, input);
     return response.access;
   }
 };

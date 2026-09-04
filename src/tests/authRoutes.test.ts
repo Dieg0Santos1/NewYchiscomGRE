@@ -40,7 +40,8 @@ function createProtectedApp() {
     createSession: vi.fn(() => ({ token: 'token-valido', session })),
     verifySession: vi.fn((token) => token === 'token-valido' ? session : null),
     listAccesses: vi.fn(() => []),
-    createAccess: vi.fn()
+    createAccess: vi.fn(),
+    updateAccess: vi.fn()
   };
   const app = express();
   app.use(express.json());

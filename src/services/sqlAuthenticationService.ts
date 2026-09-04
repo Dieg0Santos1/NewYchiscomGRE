@@ -2,17 +2,22 @@ import type { AppConfig } from '../config/env.js';
 import { createGreFcPool, sql } from '../integrations/bizlinksSql.js';
 import {
   AuthUserAlreadyExistsError,
+  AuthLastAdministratorError,
+  AuthUserNotFoundError,
   authModules,
   createSignedSession,
   hashPassword,
+  passwordFingerprint,
   verifyPassword,
   verifySignedSession,
   type AuthAccessRecord,
+  type AuthSession,
   type AuthenticationService,
   type AuthAttemptContext,
   type AuthModule,
   type AuthUserRecord,
-  type CreateAuthAccessInput
+  type CreateAuthAccessInput,
+  type UpdateAuthAccessInput
 } from './authService.js';
 
 type UserRow = {
@@ -81,8 +86,45 @@ export class SqlAuthenticationService implements AuthenticationService {
     return createSignedSession(this.config, user);
   }
 
-  verifySession(token: string) {
-    return verifySignedSession(this.config, token);
+  async verifySession(token: string): Promise<AuthSession | null> {
+    const parsed = verifySignedSession(this.config, token);
+    if (!parsed) return null;
+
+    const pool = createGreFcPool(this.config);
+    await pool.connect();
+
+    try {
+      const request = new sql.Request(pool);
+      request.input('username', sql.VarChar(80), normalizeUsername(parsed.username));
+      const result = await request.query<UserRow>(`
+        SELECT
+          u.idUsuario,
+          u.usuario AS username,
+          u.nombre AS displayName,
+          u.passwordHash,
+          u.esAdministrador AS administrator,
+          u.activo AS active,
+          u.creadoEn AS createdAt,
+          u.creadoPor AS createdBy,
+          m.modulo AS module
+        FROM dbo.GRE_PORTAL_USUARIO u
+        LEFT JOIN dbo.GRE_PORTAL_USUARIO_MODULO m ON m.idUsuario = u.idUsuario
+        WHERE u.usuario = @username
+        ORDER BY m.modulo;
+      `);
+      const user = rowsToUsers(result.recordset)[0] ?? null;
+      if (!user?.active || parsed.credentialId !== passwordFingerprint(user.passwordHash)) return null;
+
+      return {
+        ...parsed,
+        username: user.username,
+        displayName: user.displayName,
+        modules: user.modules,
+        administrator: user.administrator
+      };
+    } finally {
+      await pool.close();
+    }
   }
 
   async listAccesses() {
@@ -184,6 +226,91 @@ export class SqlAuthenticationService implements AuthenticationService {
         createdAt: createdAt.toISOString(),
         createdBy: normalizedActor
       };
+    } catch (error) {
+      await transaction.rollback().catch(() => undefined);
+      throw error;
+    } finally {
+      await pool.close();
+    }
+  }
+
+  async updateAccess(username: string, input: UpdateAuthAccessInput, actor: string) {
+    const normalized = normalizeUsername(username);
+    const displayName = input.displayName.trim();
+    if (!/^[a-z0-9._-]{3,80}$/.test(normalized)) throw new Error('Nombre de usuario invalido.');
+    if (!displayName || displayName.length > 120) throw new Error('Nombre visible invalido.');
+    if (input.password && (input.password.length < 8 || input.password.length > 128)) {
+      throw new Error('La contrasena debe tener entre 8 y 128 caracteres');
+    }
+
+    const normalizedActor = normalizeUsername(actor);
+    const pool = createGreFcPool(this.config);
+    await pool.connect();
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
+    try {
+      const targetRequest = new sql.Request(transaction);
+      targetRequest.input('username', sql.VarChar(80), normalized);
+      const target = await targetRequest.query<{
+        idUsuario: number;
+        active: boolean;
+        administrator: boolean;
+        passwordHash: string;
+      }>(`
+        SELECT idUsuario, activo AS active, esAdministrador AS administrator, passwordHash
+        FROM dbo.GRE_PORTAL_USUARIO WITH (UPDLOCK, HOLDLOCK)
+        WHERE usuario = @username;
+      `);
+      const existing = target.recordset[0];
+      if (!existing) throw new AuthUserNotFoundError(`El usuario ${normalized} no existe.`);
+
+      if ((existing.active && existing.administrator) && (!input.active || !input.administrator)) {
+        const adminRequest = new sql.Request(transaction);
+        adminRequest.input('username', sql.VarChar(80), normalized);
+        const admins = await adminRequest.query<{ total: number }>(`
+          SELECT COUNT(1) AS total
+          FROM dbo.GRE_PORTAL_USUARIO WITH (UPDLOCK, HOLDLOCK)
+          WHERE usuario <> @username
+            AND activo = 1
+            AND esAdministrador = 1;
+        `);
+        if ((admins.recordset[0]?.total ?? 0) === 0) {
+          throw new AuthLastAdministratorError('Debe quedar al menos un SuperAdmin activo.');
+        }
+      }
+
+      const updateRequest = new sql.Request(transaction);
+      updateRequest.input('username', sql.VarChar(80), normalized);
+      updateRequest.input('displayName', sql.NVarChar(120), displayName);
+      updateRequest.input('passwordHash', sql.VarChar(300), input.password ? hashPassword(input.password) : existing.passwordHash);
+      updateRequest.input('administrator', sql.Bit, input.administrator);
+      updateRequest.input('active', sql.Bit, input.active);
+      updateRequest.input('actor', sql.VarChar(80), normalizedActor);
+      await updateRequest.query(`
+        UPDATE dbo.GRE_PORTAL_USUARIO
+        SET nombre = @displayName,
+            passwordHash = @passwordHash,
+            esAdministrador = @administrator,
+            activo = @active,
+            modificadoEn = SYSUTCDATETIME(),
+            modificadoPor = @actor
+        WHERE usuario = @username;
+      `);
+
+      await insertAudit(transaction, {
+        eventType: 'USUARIO_ACTUALIZADO',
+        actor: normalizedActor,
+        target: normalized,
+        success: true,
+        detail: `Credenciales actualizadas; administrador: ${input.administrator ? 'si' : 'no'}; activo: ${input.active ? 'si' : 'no'}.`
+      });
+      await transaction.commit();
+
+      const accesses = await this.listAccesses();
+      const access = accesses.find((item) => item.username === normalized);
+      if (!access) throw new AuthUserNotFoundError(`El usuario ${normalized} no existe.`);
+      return access;
     } catch (error) {
       await transaction.rollback().catch(() => undefined);
       throw error;

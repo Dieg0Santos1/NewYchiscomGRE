@@ -20,6 +20,13 @@ export type CreateAuthAccess = {
   modules: AuthModule[];
 };
 
+export type UpdateAuthAccess = {
+  displayName: string;
+  password?: string;
+  active: boolean;
+  administrator: boolean;
+};
+
 export type AuthSessionResponse = {
   ok: boolean;
   authEnabled: boolean;

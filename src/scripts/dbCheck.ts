@@ -126,6 +126,14 @@ async function main() {
         results,
         'GRE_FORMULARIOS_TEST/AUTH'
       );
+      await checkColumnPermissions(
+        pool,
+        'dbo.GRE_PORTAL_USUARIO',
+        ['nombre', 'passwordHash', 'esAdministrador', 'activo', 'modificadoEn', 'modificadoPor'],
+        'UPDATE',
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH'
+      );
       await checkForbiddenPermissions(
         pool,
         portalAuthTables,
@@ -337,6 +345,24 @@ async function checkObjectPermissions(
         level: hasPermission ? 'OK' : 'ERROR'
       });
     }
+  }
+}
+
+async function checkColumnPermissions(
+  pool: sql.ConnectionPool,
+  objectName: string,
+  columnNames: string[],
+  permission: string,
+  results: CheckResult[],
+  scope: string
+) {
+  for (const columnName of columnNames) {
+    const hasPermission = await hasColumnPermission(pool, objectName, columnName, permission);
+    results.push({
+      scope,
+      name: `${permission} ${objectName}.${columnName}`,
+      level: hasPermission ? 'OK' : 'ERROR'
+    });
   }
 }
 
@@ -586,6 +612,21 @@ async function hasObjectPermission(pool: sql.ConnectionPool, objectName: string,
   `);
 
   return result.recordset[0]?.hasPermission === 1;
+}
+
+async function hasColumnPermission(pool: sql.ConnectionPool, objectName: string, columnName: string, permission: string) {
+  const request = new sql.Request(pool);
+  request.input('objectName', sql.NVarChar(260), objectName);
+  request.input('columnName', sql.NVarChar(128), columnName);
+  request.input('permission', sql.NVarChar(30), permission);
+  const result = await request.query<{ hasPermission: number | null }>(`
+    SELECT COUNT(1) AS hasPermission
+    FROM fn_my_permissions(@objectName, 'OBJECT')
+    WHERE permission_name = @permission
+      AND subentity_name = @columnName
+  `);
+
+  return (result.recordset[0]?.hasPermission ?? 0) > 0;
 }
 
 function splitObjectName(objectName: string): [string, string] {

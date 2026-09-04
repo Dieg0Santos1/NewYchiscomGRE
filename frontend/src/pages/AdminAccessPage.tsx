@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Plus, ShieldCheck, Users, X } from 'lucide-react';
+import { KeyRound, Plus, ShieldCheck, Users, X } from 'lucide-react';
 import { adminAccessService } from '../services/AdminAccessService';
-import type { AuthAccess, AuthModule, CreateAuthAccess } from '../types/auth';
+import type { AuthAccess, AuthModule, CreateAuthAccess, UpdateAuthAccess } from '../types/auth';
 
 const moduleOptions: Array<{ value: AuthModule; label: string }> = [
   { value: 'fc', label: 'FC' },
@@ -16,13 +16,27 @@ const emptyForm: CreateAuthAccess = {
   modules: []
 };
 
+type EditAccessForm = UpdateAuthAccess & {
+  username: string;
+};
+
+const emptyEditForm: EditAccessForm = {
+  displayName: '',
+  username: '',
+  password: '',
+  active: true,
+  administrator: false
+};
+
 export function AdminAccessPage() {
   const [accesses, setAccesses] = useState<AuthAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [form, setForm] = useState<CreateAuthAccess>(emptyForm);
+  const [editForm, setEditForm] = useState<EditAccessForm>(emptyEditForm);
 
   useEffect(() => {
     void loadAccesses();
@@ -71,6 +85,42 @@ export function AdminAccessPage() {
     }
   }
 
+  function openEditAccess(access: AuthAccess) {
+    setEditForm({
+      username: access.username,
+      displayName: access.displayName,
+      password: '',
+      active: access.active,
+      administrator: access.administrator
+    });
+    setMessage('');
+    setEditModalOpen(true);
+  }
+
+  async function updateAccess(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const { username, password, ...payload } = editForm;
+      const access = await adminAccessService.update(username, {
+        ...payload,
+        password: password?.trim() || undefined
+      });
+      setAccesses((current) => current
+        .map((item) => item.username === access.username ? access : item)
+        .sort((left, right) => left.displayName.localeCompare(right.displayName, 'es')));
+      setEditForm(emptyEditForm);
+      setEditModalOpen(false);
+      setMessage(`Credenciales actualizadas para ${access.displayName}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudieron actualizar las credenciales.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="screen-panel admin-access-screen">
       <header className="admin-access-header">
@@ -103,13 +153,14 @@ export function AdminAccessPage() {
               <th>Estado</th>
               <th>Creado por</th>
               <th>Fecha de creación</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="admin-table-empty">Cargando accesos...</td></tr>
+              <tr><td colSpan={8} className="admin-table-empty">Cargando accesos...</td></tr>
             ) : accesses.length === 0 ? (
-              <tr><td colSpan={7} className="admin-table-empty">No hay accesos configurados.</td></tr>
+              <tr><td colSpan={8} className="admin-table-empty">No hay accesos configurados.</td></tr>
             ) : accesses.map((access) => (
               <tr key={access.username}>
                 <td><strong>{access.displayName}</strong></td>
@@ -119,6 +170,11 @@ export function AdminAccessPage() {
                 <td><span className={access.active ? 'admin-status-active' : 'admin-status-inactive'}>{access.active ? 'Activo' : 'Inactivo'}</span></td>
                 <td>{access.createdBy || 'Configuración inicial'}</td>
                 <td>{formatDate(access.createdAt)}</td>
+                <td>
+                  <button type="button" className="secondary-button admin-edit-access" onClick={() => openEditAccess(access)}>
+                    <KeyRound size={16} /> Credenciales
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -164,6 +220,53 @@ export function AdminAccessPage() {
               <footer className="admin-access-actions">
                 <button type="button" className="secondary-button" onClick={() => setModalOpen(false)}>Cancelar</button>
                 <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Creando...' : 'Crear acceso'}</button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {editModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-access-title">
+          <section className="admin-access-modal">
+            <header className="modal-titlebar">
+              <div>
+                <h2 id="edit-access-title">Cambiar credenciales</h2>
+                <p>La nueva contraseña invalida las sesiones abiertas de ese usuario.</p>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setEditModalOpen(false)} aria-label="Cerrar"><X size={20} /></button>
+            </header>
+            <form className="admin-access-form" onSubmit={updateAccess}>
+              <label>
+                Usuario
+                <input value={editForm.username} disabled />
+              </label>
+              <label>
+                Nombre completo
+                <input value={editForm.displayName} maxLength={120} onChange={(event) => setEditForm((current) => ({ ...current, displayName: event.target.value }))} required autoFocus />
+              </label>
+              <label>
+                Nueva contraseña
+                <input type="password" value={editForm.password || ''} minLength={8} maxLength={128} autoComplete="new-password" onChange={(event) => setEditForm((current) => ({ ...current, password: event.target.value }))} />
+                <small>Deje este campo vacío para conservar la contraseña actual.</small>
+              </label>
+              <fieldset>
+                <legend>Estado y perfil</legend>
+                <div className="admin-module-options admin-access-switches">
+                  <label>
+                    <input type="checkbox" checked={editForm.active} onChange={(event) => setEditForm((current) => ({ ...current, active: event.target.checked }))} />
+                    <span>Activo</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" checked={editForm.administrator} onChange={(event) => setEditForm((current) => ({ ...current, administrator: event.target.checked }))} />
+                    <span>SuperAdmin</span>
+                  </label>
+                </div>
+              </fieldset>
+              {message && <div className="login-error" role="alert">{message}</div>}
+              <footer className="admin-access-actions">
+                <button type="button" className="secondary-button" onClick={() => setEditModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="primary-button" disabled={saving}>{saving ? 'Guardando...' : 'Guardar cambios'}</button>
               </footer>
             </form>
           </section>

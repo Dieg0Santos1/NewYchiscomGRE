@@ -22,6 +22,20 @@ export async function apiPost<T>(url: string, body: unknown, headers: Record<str
   return parseResponse<T>(response);
 }
 
+export async function apiPatch<T>(url: string, body: unknown, headers: Record<string, string> = {}): Promise<T> {
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...headers
+    },
+    body: JSON.stringify(body)
+  });
+
+  return parseResponse<T>(response);
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null) as unknown;
 

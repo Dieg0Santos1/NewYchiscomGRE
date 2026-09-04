@@ -85,31 +85,99 @@ describe('administracion de accesos', () => {
       .expect(409)
       .expect((response) => expect(response.body.error).toBe('ACCESS_ALREADY_EXISTS'));
   });
+
+  it('actualiza credenciales y permite usar la nueva contrasena', async () => {
+    const { app, service } = createAdminApp();
+    const adminCookie = await login(app, 'superadmin', 'Admin-Test$2026');
+
+    await request(app)
+      .patch('/api/admin/accesses/mary')
+      .set('Cookie', adminCookie)
+      .send({
+        displayName: 'Mary Actualizada',
+        password: 'NuevaClave$2026',
+        active: true,
+        administrator: false
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.access).toMatchObject({
+          username: 'mary',
+          displayName: 'Mary Actualizada',
+          active: true,
+          administrator: false
+        });
+        expect(response.body.access).not.toHaveProperty('passwordHash');
+      });
+
+    expect(service.authenticate('mary', 'ClaveMary$')).toBeNull();
+    expect(service.authenticate('mary', 'NuevaClave$2026')).not.toBeNull();
+  });
+
+  it('no permite desactivar ni degradar al ultimo SuperAdmin activo', async () => {
+    const { app } = createAdminApp({ includeSecondAdministrator: false });
+    const adminCookie = await login(app, 'superadmin', 'Admin-Test$2026');
+
+    await request(app)
+      .patch('/api/admin/accesses/superadmin')
+      .set('Cookie', adminCookie)
+      .send({
+        displayName: 'SuperAdmin',
+        password: '',
+        active: false,
+        administrator: true
+      })
+      .expect(409)
+      .expect((response) => expect(response.body.error).toBe('LAST_ADMIN_REQUIRED'));
+
+    await request(app)
+      .patch('/api/admin/accesses/superadmin')
+      .set('Cookie', adminCookie)
+      .send({
+        displayName: 'SuperAdmin',
+        password: '',
+        active: true,
+        administrator: false
+      })
+      .expect(409)
+      .expect((response) => expect(response.body.error).toBe('LAST_ADMIN_REQUIRED'));
+  });
 });
 
-function createAdminApp() {
+function createAdminApp(options: { includeSecondAdministrator?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'gre-admin-test-'));
   temporaryDirectories.push(directory);
   const usersFile = join(directory, 'users.json');
+  const users = [
+    {
+      username: 'superadmin',
+      displayName: 'SuperAdmin',
+      passwordHash: hashPassword('Admin-Test$2026'),
+      modules: ['fc', 'flexo', 'traslado'],
+      active: true,
+      administrator: true
+    },
+    {
+      username: 'mary',
+      displayName: 'Mary',
+      passwordHash: hashPassword('ClaveMary$'),
+      modules: ['traslado'],
+      active: true,
+      administrator: false
+    }
+  ];
+  if (options.includeSecondAdministrator) {
+    users.push({
+      username: 'admin2',
+      displayName: 'Admin Dos',
+      passwordHash: hashPassword('AdminDos$2026'),
+      modules: ['fc'],
+      active: true,
+      administrator: true
+    });
+  }
   writeFileSync(usersFile, JSON.stringify({
-    users: [
-      {
-        username: 'superadmin',
-        displayName: 'SuperAdmin',
-        passwordHash: hashPassword('Admin-Test$2026'),
-        modules: ['fc', 'flexo', 'traslado'],
-        active: true,
-        administrator: true
-      },
-      {
-        username: 'mary',
-        displayName: 'Mary',
-        passwordHash: hashPassword('ClaveMary$'),
-        modules: ['traslado'],
-        active: true,
-        administrator: false
-      }
-    ]
+    users
   }));
 
   const config = {

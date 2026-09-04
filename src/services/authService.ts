@@ -42,18 +42,27 @@ export type CreateAuthAccessInput = {
   modules: AuthModule[];
   administrator?: boolean;
 };
+export type UpdateAuthAccessInput = {
+  displayName: string;
+  password?: string;
+  active: boolean;
+  administrator: boolean;
+};
 export type AuthAttemptContext = { ip?: string; userAgent?: string };
 type MaybePromise<T> = T | Promise<T>;
 
 export class AuthUserAlreadyExistsError extends Error {}
+export class AuthUserNotFoundError extends Error {}
+export class AuthLastAdministratorError extends Error {}
 
 export interface AuthenticationService {
   readonly enabled: boolean;
   authenticate(username: string, password: string, context?: AuthAttemptContext): MaybePromise<AuthUserRecord | null>;
   createSession(user: AuthUserRecord): { token: string; session: AuthSession };
-  verifySession(token: string): AuthSession | null;
+  verifySession(token: string): MaybePromise<AuthSession | null>;
   listAccesses(): MaybePromise<AuthAccessRecord[]>;
   createAccess(input: CreateAuthAccessInput, actor: string): MaybePromise<AuthAccessRecord>;
+  updateAccess(username: string, input: UpdateAuthAccessInput, actor: string): MaybePromise<AuthAccessRecord>;
 }
 
 export class FileAuthenticationService implements AuthenticationService {
@@ -131,6 +140,40 @@ export class FileAuthenticationService implements AuthenticationService {
     this.users.set(username, user);
 
     return toAccessRecord(user);
+  }
+
+  updateAccess(username: string, input: UpdateAuthAccessInput, actor: string) {
+    const normalized = normalizeUsername(username);
+    const existing = this.users.get(normalized);
+    if (!existing) throw new AuthUserNotFoundError(`El usuario ${normalized} no existe.`);
+
+    const displayName = input.displayName.trim();
+    if (!displayName || displayName.length > 120) throw new Error('Ingrese un nombre de hasta 120 caracteres.');
+    if (input.password && (input.password.length < 8 || input.password.length > 128)) {
+      throw new Error('La contrasena debe tener entre 8 y 128 caracteres');
+    }
+    if ((existing.active && existing.administrator) && (!input.active || !input.administrator)) {
+      const otherAdminExists = [...this.users.values()].some((user) =>
+        normalizeUsername(user.username) !== normalized && user.active && user.administrator
+      );
+      if (!otherAdminExists) {
+        throw new AuthLastAdministratorError('Debe quedar al menos un SuperAdmin activo.');
+      }
+    }
+
+    const updated = userRecordSchema.parse({
+      ...existing,
+      displayName,
+      passwordHash: input.password ? hashPassword(input.password) : existing.passwordHash,
+      active: input.active,
+      administrator: input.administrator,
+      createdAt: existing.createdAt,
+      createdBy: existing.createdBy
+    });
+    this.users.set(normalized, updated);
+    persistUsers(this.usersFile, [...this.users.values()]);
+
+    return toAccessRecord(updated);
   }
 }
 
@@ -242,6 +285,6 @@ function sign(payload: string, secret: string) {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
 
-function passwordFingerprint(passwordHash: string) {
+export function passwordFingerprint(passwordHash: string) {
   return createHash('sha256').update(passwordHash).digest('base64url').slice(0, 22);
 }
