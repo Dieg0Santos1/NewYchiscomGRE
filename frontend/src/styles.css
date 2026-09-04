@@ -408,6 +408,12 @@ select.auto-field:disabled {
   grid-template-columns: 90px minmax(150px, 0.35fr) minmax(180px, 0.45fr) minmax(180px, 0.45fr);
 }
 
+.traslado-destination-line {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 150px 80px;
+}
+
 .recipient-picker {
   display: grid;
   gap: 8px;
@@ -2361,6 +2367,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   }
 
   .form-field {
+    grid-template-columns: 1fr;
+  }
+
+  .traslado-destination-line {
     grid-template-columns: 1fr;
   }
 
