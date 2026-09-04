@@ -534,10 +534,65 @@ export class GreFormularioQueryService {
   }
 
   async getDestinos(numeroDocumento: string) {
-    return {
-      numeroDocumento: numeroDocumento.trim(),
-      destinos: await this.existingGreClient.getDestinos(numeroDocumento)
+    const normalized = numeroDocumento.trim();
+    const warnings: string[] = [];
+
+    try {
+      const destinos = await this.existingGreClient.getDestinos(normalized);
+      if (destinos.length > 0) {
+        return { numeroDocumento: normalized, destinos, warnings };
+      }
+      warnings.push('La API existente no devolvio destinos.');
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : 'No se pudo consultar la API existente.');
+    }
+
+    const ychiAttempt = async () => {
+      const ychiPool = createYchiPool(this.config);
+      try {
+        await ychiPool.connect();
+        return await getDestinosFromYchiByNumeroDocumento(ychiPool, normalized);
+      } finally {
+        await ychiPool.close().catch(() => undefined);
+      }
     };
+
+    const historyAttempt = async () => {
+      const bizlinksPool = createBizlinksPool(this.config);
+      try {
+        await bizlinksPool.connect();
+        return await getDestinosFromBizlinksHistory(bizlinksPool, normalized);
+      } finally {
+        await bizlinksPool.close().catch(() => undefined);
+      }
+    };
+
+    const [ychiResult, historyResult] = await Promise.allSettled([ychiAttempt(), historyAttempt()]);
+    let ychiDestinations: GreDestino[] = [];
+    let historicalDestinations: GreDestino[] = [];
+
+    if (ychiResult.status === 'fulfilled') {
+      ychiDestinations = ychiResult.value.destinos;
+      if (ychiResult.value.warning) warnings.push(ychiResult.value.warning);
+    } else {
+      warnings.push(ychiResult.reason instanceof Error
+        ? `No se pudo consultar YCHIDB3 (${ychiResult.reason.message}).`
+        : 'No se pudo consultar YCHIDB3.');
+    }
+
+    if (historyResult.status === 'fulfilled') {
+      historicalDestinations = historyResult.value;
+    } else {
+      warnings.push(historyResult.reason instanceof Error
+        ? `No se pudo consultar el historial Bizlinks (${historyResult.reason.message}).`
+        : 'No se pudo consultar el historial Bizlinks.');
+    }
+
+    const destinos = combineDestinations([...ychiDestinations, ...historicalDestinations]);
+    if (ychiDestinations.length > 0) warnings.push('Destino cargado desde YCHIDB3.');
+    else if (historicalDestinations.length > 0) warnings.push('Destino cargado desde historial Bizlinks.');
+
+    return { numeroDocumento: normalized, destinos, warnings };
   }
 
   async searchDrivers(): Promise<DriverCatalogItem[]> {
@@ -1182,6 +1237,83 @@ async function getDestinosFromYchiByDocumentIds(pool: sql.ConnectionPool, ids: A
           LEN(LTRIM(RTRIM(u.DISTRITO))) DESC,
           u.[CODIGO UBIGEO]
       ) ubigeoPorDireccion
+      ORDER BY d.orden, d.idClieDireccion
+    `);
+    const destinos = normalizeYchiDestinations(result.recordset);
+    const missingUbigeoRows = destinos.filter((destino) => !/^\d{6}$/.test(destino.ubigeo)).length;
+
+    return {
+      destinos,
+      warning: missingUbigeoRows > 0
+        ? `${missingUbigeoRows} destino(s) de YCHIDB3 requieren completar ubigeo manualmente.`
+        : ''
+    };
+  } catch (error) {
+    return {
+      destinos: [],
+      warning: error instanceof Error
+        ? `No se pudo leer destinos desde YCHIDB3 (${error.message}).`
+        : 'No se pudo leer destinos desde YCHIDB3.'
+    };
+  }
+}
+
+async function getDestinosFromYchiByNumeroDocumento(pool: sql.ConnectionPool, numeroDocumento: string): Promise<{
+  destinos: GreDestino[];
+  warning: string;
+}> {
+  const request = new sql.Request(pool);
+  request.input('numeroDocumentoDestino', sql.VarChar(20), numeroDocumento.replace(/[\s-]+/g, ''));
+
+  try {
+    const result = await request.query<YchiDestinationRow>(`
+      WITH Clientes AS (
+        SELECT DISTINCT
+          c.idClieProv,
+          NULLIF(LTRIM(RTRIM(c.Direccion)), '') AS direccionPrincipal,
+          NULLIF(LTRIM(RTRIM(c.ubigeo)), '') AS ubigeoCliente
+        FROM dbo.tbClieProv c
+        WHERE REPLACE(REPLACE(LTRIM(RTRIM(c.RUC)), '-', ''), ' ', '') = @numeroDocumentoDestino
+      ),
+      Direcciones AS (
+        SELECT
+          c.idClieProv,
+          CAST(NULL AS int) AS idClieDireccion,
+          c.direccionPrincipal AS direccion,
+          0 AS orden
+        FROM Clientes c
+        WHERE c.direccionPrincipal IS NOT NULL
+
+        UNION ALL
+
+        SELECT
+          cd.idclieprov AS idClieProv,
+          cd.idcliedireccion AS idClieDireccion,
+          NULLIF(LTRIM(RTRIM(cd.direccion)), '') AS direccion,
+          1 AS orden
+        FROM dbo.tbcliedireccion cd
+        INNER JOIN Clientes c
+          ON c.idClieProv = cd.idclieprov
+        WHERE NULLIF(LTRIM(RTRIM(cd.direccion)), '') IS NOT NULL
+      ),
+      DireccionesConCodigo AS (
+        SELECT
+          d.*,
+          ROW_NUMBER() OVER (PARTITION BY d.idClieProv ORDER BY d.orden, d.idClieDireccion) AS codigoDestino
+        FROM Direcciones d
+      )
+      SELECT
+        d.idClieProv,
+        d.idClieDireccion,
+        d.codigoDestino,
+        CASE
+          WHEN c.ubigeoCliente LIKE '[0-9][0-9][0-9][0-9][0-9][0-9]'
+          THEN c.ubigeoCliente
+        END AS ubigeo,
+        d.direccion
+      FROM DireccionesConCodigo d
+      INNER JOIN Clientes c
+        ON c.idClieProv = d.idClieProv
       ORDER BY d.orden, d.idClieDireccion
     `);
     const destinos = normalizeYchiDestinations(result.recordset);

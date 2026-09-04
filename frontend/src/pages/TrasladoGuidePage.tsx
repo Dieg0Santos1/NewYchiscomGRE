@@ -241,23 +241,28 @@ export function TrasladoGuidePage() {
       ...current,
       tipoDocumentoDestinatario: nextCliente.tipoDocumento || '6',
       numeroDocumentoDestinatario: nextCliente.numeroDocumento,
-      razonSocialDestinatario: nextCliente.razonSocial
+      razonSocialDestinatario: nextCliente.razonSocial,
+      direccionPtoLlegada: '',
+      ubigeoPtoLlegada: '',
+      codigoPtoLlegada: '1'
     }));
     setMessage(`Cargando destino de ${nextCliente.razonSocial}...`);
 
     try {
       const result = await greFormularioService.getDestinos(nextCliente.numeroDocumento);
-      const firstDestination = result.find(isCompleteDestination);
+      const firstDestination = result[0];
       setDestinos(result);
       setSelectedDestinoId(firstDestination?.id ?? '');
       setForm((current) => ({
         ...current,
-        direccionPtoLlegada: firstDestination?.direccion ?? current.direccionPtoLlegada,
-        ubigeoPtoLlegada: firstDestination?.ubigeo ?? current.ubigeoPtoLlegada,
-        codigoPtoLlegada: firstDestination?.codigoDestino ?? current.codigoPtoLlegada
+        direccionPtoLlegada: firstDestination?.direccion ?? '',
+        ubigeoPtoLlegada: firstDestination?.ubigeo ?? '',
+        codigoPtoLlegada: firstDestination?.codigoDestino ?? '1'
       }));
       setMessage(firstDestination
-        ? `Cliente seleccionado con destino: ${firstDestination.ubigeo} - ${firstDestination.direccion}.`
+        ? isCompleteDestination(firstDestination)
+          ? `Cliente seleccionado con destino: ${firstDestination.ubigeo} - ${firstDestination.direccion}.`
+          : `Cliente seleccionado con destino: ${firstDestination.direccion}. Complete el ubigeo.`
         : 'Cliente seleccionado sin destino historico. Complete destino manualmente.');
     } catch (error) {
       setMessage(error instanceof Error
@@ -299,7 +304,7 @@ export function TrasladoGuidePage() {
   }
 
   function updateDestinationField<K extends 'direccionPtoLlegada' | 'ubigeoPtoLlegada' | 'codigoPtoLlegada'>(field: K, value: TrasladoFormState[K]) {
-    setSelectedDestinoId('');
+    if (field === 'direccionPtoLlegada') setSelectedDestinoId('');
     updateField(field, value);
   }
 
@@ -542,15 +547,18 @@ export function TrasladoGuidePage() {
 
         <FormField label="DESTINO" required wide>
           <div className="traslado-destination-line">
-            <select value={selectedDestinoId} onChange={(event) => selectDestino(event.target.value)} disabled={destinos.length === 0}>
-              <option value="">{destinos.length === 0 ? 'Destino manual' : 'Seleccione destino'}</option>
-              {destinos.filter(isCompleteDestination).map((destino) => (
-                <option key={destino.id} value={destino.id}>
-                  {destino.ubigeo} - {destino.direccion}
-                </option>
-              ))}
-            </select>
-            <input value={form.direccionPtoLlegada} maxLength={100} onChange={(event) => updateDestinationField('direccionPtoLlegada', event.target.value)} placeholder="Direccion de llegada" />
+            {destinos.length > 0 ? (
+              <select value={selectedDestinoId} onChange={(event) => selectDestino(event.target.value)}>
+                <option value="">Seleccione destino</option>
+                {destinos.map((destino) => (
+                  <option key={destino.id} value={destino.id}>
+                    {destino.ubigeo ? `${destino.ubigeo} - ` : ''}{destino.direccion}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input value={form.direccionPtoLlegada} maxLength={100} onChange={(event) => updateDestinationField('direccionPtoLlegada', event.target.value)} placeholder="Direccion de llegada" />
+            )}
             <input value={form.ubigeoPtoLlegada} maxLength={6} onChange={(event) => updateDestinationField('ubigeoPtoLlegada', event.target.value.replace(/\D/g, ''))} placeholder="Ubigeo" />
             <input value={form.codigoPtoLlegada} maxLength={4} onChange={(event) => updateDestinationField('codigoPtoLlegada', event.target.value)} placeholder="Codigo" />
           </div>
