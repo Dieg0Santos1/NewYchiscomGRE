@@ -137,7 +137,23 @@ async function main() {
       await checkForbiddenPermissions(
         pool,
         portalAuthTables,
-        ['UPDATE', 'DELETE'],
+        ['DELETE'],
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH'
+      );
+      await checkColumnPermissions(
+        pool,
+        'dbo.GRE_PORTAL_USUARIO',
+        ['idUsuario', 'usuario', 'creadoEn', 'creadoPor', 'version'],
+        'UPDATE',
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH',
+        false
+      );
+      await checkForbiddenPermissions(
+        pool,
+        ['dbo.GRE_PORTAL_USUARIO_MODULO', 'dbo.GRE_PORTAL_ACCESO_EVENTO'],
+        ['UPDATE'],
         results,
         'GRE_FORMULARIOS_TEST/AUTH'
       );
@@ -354,14 +370,15 @@ async function checkColumnPermissions(
   columnNames: string[],
   permission: string,
   results: CheckResult[],
-  scope: string
+  scope: string,
+  shouldHavePermission = true
 ) {
   for (const columnName of columnNames) {
     const hasPermission = await hasColumnPermission(pool, objectName, columnName, permission);
     results.push({
       scope,
-      name: `${permission} ${objectName}.${columnName}`,
-      level: hasPermission ? 'OK' : 'ERROR'
+      name: `${shouldHavePermission ? permission : `Sin ${permission}`} ${objectName}.${columnName}`,
+      level: hasPermission === shouldHavePermission ? 'OK' : 'ERROR'
     });
   }
 }

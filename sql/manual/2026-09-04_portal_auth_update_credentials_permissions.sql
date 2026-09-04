@@ -28,7 +28,7 @@ GO
 REVOKE UPDATE ON OBJECT::dbo.GRE_PORTAL_USUARIO FROM [gre_app_test];
 GO
 
-GRANT UPDATE ON OBJECT::dbo.GRE_PORTAL_USUARIO
+GRANT UPDATE
 (
   nombre,
   passwordHash,
@@ -36,7 +36,7 @@ GRANT UPDATE ON OBJECT::dbo.GRE_PORTAL_USUARIO
   activo,
   modificadoEn,
   modificadoPor
-) TO [gre_app_test];
+) ON OBJECT::dbo.GRE_PORTAL_USUARIO TO [gre_app_test];
 GO
 
 DENY DELETE ON OBJECT::dbo.GRE_PORTAL_USUARIO TO [gre_app_test];
