@@ -270,6 +270,16 @@ describe('fc-facturas routes', () => {
       .expect('Location', 'https://sfeintegrador.bizlinks.com.pe/pdf/FF01-00000001.pdf');
   });
 
+  it('solicita clientes y proveedores para el selector de destinatarios', async () => {
+    const app = createApp({ config: testConfig, fcFacturaService });
+
+    await request(app)
+      .get('/api/fc-facturas/clientes/search?scope=destinatarios&q=COLTECMEC')
+      .expect(200);
+
+    expect(fcFacturaService.searchClientes).toHaveBeenLastCalledWith('COLTECMEC', true);
+  });
+
   it('entrega directamente el PDF binario descargado por Bizlinks', async () => {
     const pdf = Buffer.from('%PDF-1.4\nPDF DE PRUEBA');
     const service: FcFacturaService = {

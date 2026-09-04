@@ -15,7 +15,7 @@ export type FcFacturaCliente = {
   tipoDocumento: string;
   numeroDocumento: string;
   razonSocial: string;
-  fuente: 'GRE_FC' | 'BIZLINKS';
+  fuente: 'GRE_FC' | 'BIZLINKS' | 'CLIENTE_YCHIDB3' | 'PROVEEDOR';
 };
 
 export type FcFacturaVendedor = {
@@ -148,7 +148,7 @@ type ExistingFacturaEnvio = {
 };
 
 export interface FcFacturaService {
-  searchClientes(query: string): Promise<FcFacturaCliente[]>;
+  searchClientes(query: string, includeYchiRecipients?: boolean): Promise<FcFacturaCliente[]>;
   getNextSerie(): Promise<FcFacturaNextSerie>;
   listCuentas(): Promise<{
     cuentas: FcFacturaCuenta[];
@@ -181,18 +181,21 @@ export interface FcFacturaService {
 export class DirectDbFcFacturaService implements FcFacturaService {
   constructor(private readonly config: AppConfig) {}
 
-  async searchClientes(query: string): Promise<FcFacturaCliente[]> {
+  async searchClientes(query: string, includeYchiRecipients = false): Promise<FcFacturaCliente[]> {
     const normalized = query.trim();
     const greFcPool = createGreFcPool(this.config);
     const bizlinksPool = createBizlinksPool(this.config);
+    const ychiPool = includeYchiRecipients ? createYchiPool(this.config) : null;
 
     await greFcPool.connect();
     await bizlinksPool.connect();
+    if (ychiPool) await ychiPool.connect();
 
     try {
       const results = [
         ...await searchClientesFromGreFc(greFcPool, normalized),
-        ...await searchClientesFromBizlinks(bizlinksPool, normalized)
+        ...await searchClientesFromBizlinks(bizlinksPool, normalized),
+        ...(ychiPool ? await searchRecipientsFromYchi(ychiPool, normalized) : [])
       ];
       const byDocument = new Map<string, FcFacturaCliente>();
 
@@ -215,6 +218,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
 
       return [...byDocument.values()].slice(0, 50);
     } finally {
+      if (ychiPool) await ychiPool.close();
       await bizlinksPool.close();
       await greFcPool.close();
     }
@@ -1555,6 +1559,45 @@ async function searchClientesFromBizlinks(pool: sql.ConnectionPool, query: strin
     numeroDocumento: row.numeroDocumento,
     razonSocial: row.razonSocial,
     fuente: 'BIZLINKS'
+  }));
+}
+
+async function searchRecipientsFromYchi(pool: sql.ConnectionPool, query: string): Promise<FcFacturaCliente[]> {
+  const request = new sql.Request(pool);
+  request.input('query', sql.NVarChar(250), `%${query}%`);
+
+  const result = await request.query<{
+    tipoDocumento: string;
+    numeroDocumento: string;
+    razonSocial: string;
+    tipoClieProv: string;
+  }>(`
+    SELECT TOP (50)
+      CASE
+        WHEN LEN(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(RUC, ''))), '-', ''), ' ', '')) = 11 THEN '6'
+        WHEN LEN(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(RUC, ''))), '-', ''), ' ', '')) = 8 THEN '1'
+        ELSE '0'
+      END AS tipoDocumento,
+      REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(RUC, ''))), '-', ''), ' ', '') AS numeroDocumento,
+      LTRIM(RTRIM(ISNULL(Nombre, ''))) AS razonSocial,
+      LTRIM(RTRIM(ISNULL(tipoClieProv, ''))) AS tipoClieProv
+    FROM dbo.tbClieProv
+    WHERE Estado = 'A'
+      AND tipoClieProv IN ('C', 'P')
+      AND (
+        @query = '%%'
+        OR Nombre LIKE @query
+        OR ISNULL(RUC, '') LIKE @query
+      )
+    ORDER BY CASE WHEN tipoClieProv = 'P' THEN 0 ELSE 1 END, Nombre
+  `);
+
+  return result.recordset.map((row) => ({
+    id: `YCHIDB3-${row.tipoClieProv}-${row.numeroDocumento}`,
+    tipoDocumento: row.tipoDocumento,
+    numeroDocumento: row.numeroDocumento,
+    razonSocial: row.razonSocial,
+    fuente: row.tipoClieProv === 'P' ? 'PROVEEDOR' : 'CLIENTE_YCHIDB3'
   }));
 }
 

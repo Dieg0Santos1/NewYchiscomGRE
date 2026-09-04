@@ -13,10 +13,11 @@ export function fcFacturaRoutes(
   router.get('/api/fc-facturas/clientes/search', async (req, res, next) => {
     try {
       const query = String(req.query.q ?? '').trim();
+      const includeYchiRecipients = String(req.query.scope ?? '').trim().toLowerCase() === 'destinatarios';
 
       res.status(200).json({
         ok: true,
-        clientes: await service.searchClientes(query)
+        clientes: await service.searchClientes(query, includeYchiRecipients)
       });
     } catch (error) {
       next(error);

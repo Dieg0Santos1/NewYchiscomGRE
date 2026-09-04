@@ -200,17 +200,17 @@ export function TrasladoGuidePage() {
 
   async function searchClientes(showStatus = true) {
     setLoadingClientes(true);
-    if (showStatus) setMessage('Buscando clientes...');
+    if (showStatus) setMessage('Buscando clientes y proveedores...');
     invalidatePreview();
 
     try {
-      const result = await facturaFcService.searchClientes(query);
+      const result = await facturaFcService.searchDestinatarios(query);
       setClientes(result);
       if (showStatus) {
-        setMessage(result.length > 0 ? `${result.length} cliente(s) encontrados.` : 'Sin clientes para mostrar.');
+        setMessage(result.length > 0 ? `${result.length} destinatario(s) encontrados.` : 'Sin clientes ni proveedores para mostrar.');
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo buscar clientes.');
+      setMessage(error instanceof Error ? error.message : 'No se pudo buscar clientes y proveedores.');
     } finally {
       setLoadingClientes(false);
     }
@@ -443,7 +443,7 @@ export function TrasladoGuidePage() {
   return (
     <section className="screen-panel traslado-screen">
       <div className="search-strip traslado-strip">
-        <FormField label="CLIENTE" required wide>
+        <FormField label="DESTINATARIO" required wide>
           <div className="invoice-client-combo">
             <div className="invoice-client-picker">
               <input
@@ -455,9 +455,9 @@ export function TrasladoGuidePage() {
                     void searchClientes();
                   }
                 }}
-                placeholder={cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : 'RUC o razon social'}
+                placeholder={cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : 'RUC, cliente o proveedor'}
               />
-              <button type="button" className="icon-button" title="Buscar cliente" onClick={() => void searchClientes()} disabled={loadingClientes}>
+              <button type="button" className="icon-button" title="Buscar cliente o proveedor" onClick={() => void searchClientes()} disabled={loadingClientes}>
                 <Search size={18} />
               </button>
               <button type="button" className="icon-button" title="Limpiar traslado" onClick={clearForm}>
@@ -466,7 +466,7 @@ export function TrasladoGuidePage() {
             </div>
             {clientes.length > 0 && !cliente && (
               <section className="client-suggestions traslado-client-suggestions">
-                <div className="client-suggestions-title">Seleccione un cliente</div>
+                <div className="client-suggestions-title">Seleccione un cliente o proveedor</div>
                 {clientes.map((item) => (
                   <button key={item.id} type="button" onClick={() => void selectCliente(item)}>
                     <span>{item.numeroDocumento}</span>

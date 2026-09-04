@@ -46,6 +46,13 @@ export const facturaFcService = {
     return response.clientes;
   },
 
+  async searchDestinatarios(query: string) {
+    const response = await apiGet<ClienteSearchResponse>(
+      `/api/fc-facturas/clientes/search?scope=destinatarios&q=${encodeURIComponent(query)}`
+    );
+    return response.clientes;
+  },
+
   getNextSerie() {
     return apiGet<FcFacturaNextSerie>('/api/fc-facturas/next-serie');
   },

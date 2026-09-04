@@ -3,7 +3,7 @@ export type FcFacturaCliente = {
   tipoDocumento: string;
   numeroDocumento: string;
   razonSocial: string;
-  fuente: 'GRE_FC' | 'BIZLINKS';
+  fuente: 'GRE_FC' | 'BIZLINKS' | 'CLIENTE_YCHIDB3' | 'PROVEEDOR';
 };
 
 export type FcFacturaVendedor = {
