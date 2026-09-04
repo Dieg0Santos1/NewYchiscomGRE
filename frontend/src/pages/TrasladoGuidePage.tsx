@@ -26,6 +26,12 @@ import type {
 } from '../types/traslado';
 import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
 
+type DeclarationFeedback = {
+  kind: 'pending' | 'success' | 'error';
+  title: string;
+  detail: string;
+};
+
 const trasladoMotivos: Array<{ codigo: TrasladoMotivoCode; descripcion: string; label: string }> =
   SUNAT_GRE_TRANSFER_REASONS.map((reason) => ({
     codigo: reason.code,
@@ -105,6 +111,7 @@ export function TrasladoGuidePage() {
   const [declaring, setDeclaring] = useState(false);
   const [operationId, setOperationId] = useState('');
   const [successSerie, setSuccessSerie] = useState('');
+  const [declarationFeedback, setDeclarationFeedback] = useState<DeclarationFeedback | null>(null);
 
   const payload = useMemo(() => toTrasladoInputDto(form), [form]);
   const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
@@ -404,12 +411,22 @@ export function TrasladoGuidePage() {
     setOperationId(nextOperationId);
     setDeclaring(true);
     setMessage('Declarando traslado T002 en Bizlinks...');
+    setDeclarationFeedback({
+      kind: 'pending',
+      title: 'Procesando la guia',
+      detail: 'Espere la confirmacion. No vuelva a presionar Declarar ni cierre esta pagina.'
+    });
     setForm(declarationForm);
 
     try {
       const result = await greTrasladoService.declare(declarationPayload, nextOperationId);
       setSuccessSerie(result.generatedSerieNumeroGuia);
       setMessage(`Traslado ${result.generatedSerieNumeroGuia} declarado en Bizlinks.`);
+      setDeclarationFeedback({
+        kind: 'success',
+        title: `Guia ${result.generatedSerieNumeroGuia} declarada`,
+        detail: 'La operacion fue registrada. Revise Reportes para ver la respuesta final de SUNAT y el PDF.'
+      });
       setPreviewConfirmed(false);
       setPreview(null);
       setCliente(null);
@@ -420,7 +437,13 @@ export function TrasladoGuidePage() {
       setForm(defaultState());
       await loadNextSerie();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'No se pudo declarar el traslado.');
+      const detail = error instanceof Error ? error.message : 'No se pudo declarar el traslado.';
+      setMessage(detail);
+      setDeclarationFeedback({
+        kind: 'error',
+        title: 'No se pudo confirmar la declaracion',
+        detail: `${detail} Consulte Reportes antes de volver a intentarlo.`
+      });
     } finally {
       setDeclaring(false);
     }
@@ -430,6 +453,7 @@ export function TrasladoGuidePage() {
     invalidatePreview();
     setOperationId('');
     setSuccessSerie('');
+    setDeclarationFeedback(null);
     setMessage('');
     setCliente(null);
     setQuery('');
@@ -675,7 +699,13 @@ export function TrasladoGuidePage() {
             {declaring ? 'Declarando' : 'Declarar'}
           </button>
           {!canDeclare && !declaring && <div className="declare-hint">{declareHint}</div>}
-          {operationId && <div className="inline-message">Operacion: {operationId}</div>}
+          {declarationFeedback && (
+            <div className={`declaration-feedback ${declarationFeedback.kind}`} role="status" aria-live="polite">
+              <strong>{declarationFeedback.title}</strong>
+              <span>{declarationFeedback.detail}</span>
+              {operationId && <small>Operacion: {operationId}</small>}
+            </div>
+          )}
         </div>
       </section>
 

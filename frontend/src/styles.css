@@ -650,6 +650,45 @@ th {
   min-height: 30px;
 }
 
+.declaration-feedback {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-left-width: 4px;
+  border-radius: 6px;
+  color: #334155;
+  display: grid;
+  gap: 4px;
+  overflow-wrap: anywhere;
+  padding: 10px;
+}
+
+.declaration-feedback.pending {
+  border-left-color: #2563eb;
+}
+
+.declaration-feedback.success {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.declaration-feedback.error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.declaration-feedback span,
+.declaration-feedback small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.declaration-feedback small {
+  color: inherit;
+  opacity: 0.8;
+}
+
 .tool-button,
 .preview-button,
 .declare-button,

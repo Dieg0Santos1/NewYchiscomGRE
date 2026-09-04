@@ -111,6 +111,10 @@ export type AppConfig = {
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.parse(source);
 
+  if (parsed.SERVE_FRONTEND && !parsed.AUTH_ENABLED) {
+    throw new Error('AUTH_ENABLED debe ser true cuando SERVE_FRONTEND=true; el portal no puede publicarse sin control de acceso');
+  }
+
   if (parsed.AUTH_ENABLED && parsed.AUTH_SESSION_SECRET.length < 32) {
     throw new Error('AUTH_SESSION_SECRET debe tener al menos 32 caracteres cuando AUTH_ENABLED=true');
   }
