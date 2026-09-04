@@ -6,7 +6,7 @@ export type TrasladoItem = {
   unidadMedida: string;
 };
 
-export type TrasladoMotivoCode = '01' | '14' | '02' | '04' | '18' | '08' | '09' | '13' | '03';
+export type TrasladoMotivoCode = '03' | '02';
 export type TrasladoModalidadCode = '01' | '02';
 
 export type TrasladoFormState = {

@@ -19,7 +19,7 @@ const transportistaSchema = z.object({
   razonSocialTransportista: z.string().min(1).max(100)
 });
 
-const trasladoMotivoSchema = z.enum(['01', '14', '02', '04', '18', '08', '09', '13', '03']);
+const trasladoMotivoSchema = z.enum(['03', '02']);
 const trasladoModalidadSchema = z.enum(['01', '02']);
 
 export const greTrasladoItemInputSchema = z.object({

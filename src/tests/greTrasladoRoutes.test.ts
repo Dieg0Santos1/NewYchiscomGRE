@@ -116,8 +116,8 @@ describe('GRE Traslado routes', () => {
       traslado: {
         ...validTrasladoInput.traslado,
         modalidadTraslado: '01',
-        motivoTraslado: '04',
-        descripcionMotivoTraslado: 'TRASLADO ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA'
+        motivoTraslado: '03',
+        descripcionMotivoTraslado: 'OTROS'
       },
       conductor: undefined,
       vehiculo: undefined,
@@ -143,7 +143,7 @@ describe('GRE Traslado routes', () => {
       .expect(200)
       .expect((response) => {
         expect(response.body.payload.modalidadTraslado).toBe('01');
-        expect(response.body.payload.motivoTraslado).toBe('04');
+        expect(response.body.payload.motivoTraslado).toBe('03');
         expect(response.body.payload.numeroRucTransportista).toBe('20555555555');
         expect(response.body.payload.razonSocialTransportista).toBe('TRANSPORTES PRUEBA S.A.C.');
         expect(response.body.payload.numeroDocumentoConductor).toBe('');
@@ -151,6 +151,33 @@ describe('GRE Traslado routes', () => {
       });
 
     expect(declarar).not.toHaveBeenCalled();
+  });
+
+  it('rechaza motivos de traslado no habilitados para T002', async () => {
+    const app = createApp({
+      config: { ...testConfig, dryRun: true, directDbInsertEnabled: false },
+      greTrasladoService: {
+        getNextSerie: vi.fn(),
+        listTraslados: vi.fn(),
+        getTrasladoPdfUrl: vi.fn(),
+        declarar: vi.fn()
+      }
+    });
+
+    await request(app)
+      .post('/api/gre-traslados/preview')
+      .send({
+        ...validTrasladoInput,
+        traslado: {
+          ...validTrasladoInput.traslado,
+          motivoTraslado: '04',
+          descripcionMotivoTraslado: 'TRASLADO ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA'
+        }
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error).toBe('VALIDATION_ERROR');
+      });
   });
 
   it('rechaza motivo 02 compra cuando destinatario no es el remitente', async () => {

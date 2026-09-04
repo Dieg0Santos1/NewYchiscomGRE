@@ -20,14 +20,7 @@ import type {
 
 const trasladoMotivos: Array<{ codigo: TrasladoMotivoCode; descripcion: string; label: string }> = [
   { codigo: '03', descripcion: 'OTROS', label: '03 - OTROS' },
-  { codigo: '01', descripcion: 'VENTA', label: '01 - VENTA' },
-  { codigo: '14', descripcion: 'VENTA SUJETA A CONFIRMACION DEL COMPRADOR', label: '14 - VENTA SUJETA A CONFIRMACION' },
-  { codigo: '02', descripcion: 'COMPRA', label: '02 - COMPRA' },
-  { codigo: '04', descripcion: 'TRASLADO ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA', label: '04 - ENTRE ESTABLECIMIENTOS' },
-  { codigo: '18', descripcion: 'TRASLADO EMISOR ITINERANTE CP', label: '18 - EMISOR ITINERANTE CP' },
-  { codigo: '08', descripcion: 'IMPORTACION', label: '08 - IMPORTACION' },
-  { codigo: '09', descripcion: 'EXPORTACION', label: '09 - EXPORTACION' },
-  { codigo: '13', descripcion: 'TRASLADO A ZONA PRIMARIA', label: '13 - ZONA PRIMARIA' }
+  { codigo: '02', descripcion: 'COMPRA', label: '02 - COMPRA' }
 ];
 
 const trasladoModalidades: Array<{ codigo: TrasladoModalidadCode; label: string }> = [
