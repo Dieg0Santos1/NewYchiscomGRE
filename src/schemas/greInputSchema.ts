@@ -17,7 +17,7 @@ const conductorSchema = z.object({
 export const greItemInputSchema = z.object({
   codigoEmpaque: z.coerce.number().int().nonnegative().default(0),
   codigoProducto: z.string().min(1),
-  descripcion: z.string().min(1),
+  descripcion: z.string().trim().min(3).max(500),
   cantidad: positiveNumber,
   cantidadOriginal: positiveNumber.optional(),
   cantidadPendiente: z.coerce.number().nonnegative().optional(),
@@ -54,7 +54,7 @@ export const greInputSchema = z
     horaEmisionGuia: timeSchema,
     fechaInicioTraslado: dateSchema,
     fechaEntregaBienes: dateSchema,
-    observaciones: z.string().default(''),
+    observaciones: z.string().max(250).default(''),
     correoDestinatario: z.string().min(1).default('-'),
     trazabilidadYchiscom: z.object({
       origenOperacion: z.enum(['FRONT_MANUAL', 'YCHISCOM_AUTOMATICO']).default('FRONT_MANUAL'),

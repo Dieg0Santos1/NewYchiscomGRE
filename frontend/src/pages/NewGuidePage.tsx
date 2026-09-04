@@ -1,30 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, RefreshCw, Search, Wrench } from 'lucide-react';
 import { DeclarationSuccessModal } from '../components/DeclarationSuccessModal';
+import { CharacterCounter } from '../components/CharacterCounter';
 import { FormField } from '../components/FormField';
 import { OtDocumentModal } from '../components/OtDocumentModal';
 import { PreviewModal } from '../components/PreviewModal';
 import { createDefaultFormState, currentTime, todayDate } from '../data/defaults';
 import { ALLOWED_SERIES, ACTIVE_SERIE, type GreSerie } from '../data/series';
+import {
+  SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH,
+  SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH,
+  SUNAT_GRE_OBSERVATION_MAX_LENGTH,
+  SUNAT_GRE_TRANSFER_REASONS
+} from '../data/sunatGre';
 import { driverService } from '../services/DriverService';
 import { greFormularioService, type PreviewResponse } from '../services/GreFormularioService';
 import { workOrderService } from '../services/WorkOrderService';
 import type { BackendGuideStatus, DriverCatalogItem, GreFormState, RecipientAddress, WorkOrderDocument } from '../types/gre';
+import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
 import { toGreInputDto } from '../utils/payload';
 
 type FieldName = keyof GreFormState;
 
-const transferReasons = [
-  { code: '01', label: 'VENTA' },
-  { code: '14', label: 'VENTA SUJETA A CONFIRMACION DEL COMPRADOR' },
-  { code: '02', label: 'COMPRA' },
-  { code: '04', label: 'TRASLADO ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA' },
-  { code: '18', label: 'TRASLADO EMISOR ITINERANTE CP' },
-  { code: '08', label: 'IMPORTACION' },
-  { code: '09', label: 'EXPORTACION' },
-  { code: '13', label: 'TRASLADO A ZONA PRIMARIA' },
-  { code: '03', label: 'OTROS' }
-];
+const transferReasons = SUNAT_GRE_TRANSFER_REASONS;
 
 function pickDefaultDestination(searchType: 'ot' | 'guia', document: WorkOrderDocument) {
   if (searchType === 'guia') return document.destinos[0];
@@ -63,6 +61,11 @@ export function NewGuidePage() {
   const [seriesMessage, setSeriesMessage] = useState('');
 
   const payload = useMemo(() => toGreInputDto(form), [form]);
+  const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
+  const selectablePlates = useMemo(
+    () => driverPlates(drivers, form.selectedPrivateDriverId),
+    [drivers, form.selectedPrivateDriverId]
+  );
   const includedItems = form.items.filter((item) => item.incluido);
   const isPrivateTransfer = form.modalidadTraslado === '02';
   const hasDriverData =
@@ -80,12 +83,18 @@ export function NewGuidePage() {
     form.codigoPtoLlegada.trim().length > 0 &&
     form.motivoTraslado.trim().length > 0 &&
     form.descripcionMotivoTraslado.trim().length > 0 &&
+    form.observaciones.length <= SUNAT_GRE_OBSERVATION_MAX_LENGTH &&
     form.pesoBrutoTotalBienes > 0 &&
     form.numeroBultos > 0 &&
     (!isPrivateTransfer || form.selectedPrivateDriverId.trim().length > 0) &&
     hasDriverData &&
     includedItems.length > 0 &&
-    includedItems.every((item) => item.cantidad > 0 && item.cantidad <= item.cantidadOriginal);
+    includedItems.every((item) =>
+      item.cantidad > 0 &&
+      item.cantidad <= item.cantidadOriginal &&
+      item.descripcion.trim().length >= SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH &&
+      item.descripcion.trim().length <= SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH
+    );
   const canPreview = isFormValid;
   const canDeclare = isFormValid && previewConfirmed && !declaring;
   const declareDisabledReason = !isFormValid
@@ -296,7 +305,7 @@ export function NewGuidePage() {
     setForm((current) => ({
       ...current,
       motivoTraslado: code,
-      descripcionMotivoTraslado: reason?.label ?? ''
+      descripcionMotivoTraslado: reason?.description ?? ''
     }));
   }
 
@@ -316,7 +325,8 @@ export function NewGuidePage() {
   }
 
   function selectPrivateDriver(driverId: string) {
-    const driver = drivers.find((item) => item.id === driverId);
+    const driver = drivers.find((item) => driverIdentity(item) === driverId);
+    const plates = driverPlates(drivers, driverId);
 
     setPreviewConfirmed(false);
     setForm((current) => ({
@@ -327,7 +337,7 @@ export function NewGuidePage() {
       nombreConductor: driver?.nombres ?? '',
       apellidoConductor: driver?.apellidos ?? '',
       numeroLicencia: driver?.licencia ?? '',
-      numeroPlacaVehiculoPrin: driver?.placa ?? ''
+      numeroPlacaVehiculoPrin: plates.length === 1 ? plates[0]! : ''
     }));
   }
 
@@ -613,7 +623,14 @@ export function NewGuidePage() {
           <input value={form.ordenCompra} onChange={(event) => changePurchaseOrder(event.target.value)} placeholder="Sin OC registrada" />
         </FormField>
         <FormField label="OBSERVACIONES" wide>
-          <input value={form.observaciones} onChange={(event) => updateField('observaciones', event.target.value)} />
+          <div className="limited-field">
+            <input
+              value={form.observaciones}
+              maxLength={SUNAT_GRE_OBSERVATION_MAX_LENGTH}
+              onChange={(event) => updateField('observaciones', event.target.value)}
+            />
+            <CharacterCounter current={form.observaciones.length} maximum={SUNAT_GRE_OBSERVATION_MAX_LENGTH} />
+          </div>
         </FormField>
       </div>
 
@@ -622,9 +639,9 @@ export function NewGuidePage() {
           {isPrivateTransfer ? (
             <select value={form.selectedPrivateDriverId} onChange={(event) => selectPrivateDriver(event.target.value)}>
               <option value="">Seleccione chofer</option>
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
-                  {driver.numeroDocumento} - {driver.nombres} {driver.apellidos} - {driver.placa}
+              {selectableDrivers.map((driver) => (
+                <option key={driverIdentity(driver)} value={driverIdentity(driver)}>
+                  {driver.nombres} {driver.apellidos} - DNI {driver.numeroDocumento} - Lic. {driver.licencia}
                 </option>
               ))}
             </select>
@@ -658,12 +675,18 @@ export function NewGuidePage() {
           />
         </FormField>
         <FormField label="PLACA">
-          <input
-            className={isPrivateTransfer ? 'auto-field' : ''}
-            value={form.numeroPlacaVehiculoPrin}
-            readOnly={isPrivateTransfer}
-            onChange={(event) => updateField('numeroPlacaVehiculoPrin', event.target.value)}
-          />
+          {isPrivateTransfer ? (
+            <select
+              value={form.numeroPlacaVehiculoPrin}
+              disabled={!form.selectedPrivateDriverId || selectablePlates.length === 0}
+              onChange={(event) => updateField('numeroPlacaVehiculoPrin', event.target.value)}
+            >
+              <option value="">Seleccione placa</option>
+              {selectablePlates.map((plate) => <option key={plate} value={plate}>{plate}</option>)}
+            </select>
+          ) : (
+            <input value={form.numeroPlacaVehiculoPrin} onChange={(event) => updateField('numeroPlacaVehiculoPrin', event.target.value)} />
+          )}
         </FormField>
         {driversMessage && <div className="inline-message">{driversMessage}</div>}
       </div>

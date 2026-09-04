@@ -19,13 +19,13 @@ const transportistaSchema = z.object({
   razonSocialTransportista: z.string().min(1).max(100)
 });
 
-const trasladoMotivoSchema = z.enum(['03', '02']);
+const trasladoMotivoSchema = z.enum(['01', '14', '04', '17', '18', '08', '09', '13', '03', '19']);
 const trasladoModalidadSchema = z.enum(['01', '02']);
 
 export const greTrasladoItemInputSchema = z.object({
   codigoEmpaque: z.literal(0).default(0),
   codigoProducto: z.string().trim().min(1).max(16),
-  descripcion: z.string().trim().min(1).max(500),
+  descripcion: z.string().trim().min(3).max(500),
   cantidad: positiveNumber,
   cantidadOriginal: positiveNumber.optional(),
   cantidadPendiente: z.coerce.number().nonnegative().optional(),
@@ -51,7 +51,7 @@ export const greTrasladoInputSchema = z
       razonSocialDestinatario: z.string().min(1).max(100)
     }),
     traslado: z.object({
-      motivoTraslado: trasladoMotivoSchema.default('03'),
+      motivoTraslado: trasladoMotivoSchema.default('13'),
       descripcionMotivoTraslado: z.string().min(1).max(100).default('OTROS'),
       pesoBrutoTotalBienes: positiveNumber,
       unidadMedidaPesoBruto: z.literal('KGM').default('KGM'),

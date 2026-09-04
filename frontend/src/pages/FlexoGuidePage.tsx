@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, PackageSearch, RefreshCw, Search, Send } from 'lucide-react';
+import { CharacterCounter } from '../components/CharacterCounter';
 import { FlexoGuidePreviewModal } from '../components/FlexoGuidePreviewModal';
 import { FormField } from '../components/FormField';
 import { currentTime, todayDate } from '../data/defaults';
+import {
+  SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH,
+  SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH,
+  SUNAT_GRE_OBSERVATION_MAX_LENGTH,
+  SUNAT_GRE_TRANSFER_REASONS
+} from '../data/sunatGre';
 import { driverService } from '../services/DriverService';
 import { flexoService } from '../services/FlexoService';
 import type { DriverCatalogItem } from '../types/gre';
@@ -14,18 +21,9 @@ import type {
   FlexoGuidePreviewInput,
   FlexoGuidePreviewResponse
 } from '../types/flexo';
+import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
 
-const transferReasons = [
-  { code: '01', label: 'VENTA' },
-  { code: '14', label: 'VENTA SUJETA A CONFIRMACION DEL COMPRADOR' },
-  { code: '02', label: 'COMPRA' },
-  { code: '04', label: 'TRASLADO ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA' },
-  { code: '18', label: 'TRASLADO EMISOR ITINERANTE CP' },
-  { code: '08', label: 'IMPORTACION' },
-  { code: '09', label: 'EXPORTACION' },
-  { code: '13', label: 'TRASLADO A ZONA PRIMARIA' },
-  { code: '03', label: 'OTROS' }
-];
+const transferReasons = SUNAT_GRE_TRANSFER_REASONS;
 
 type FlexoGuideState = {
   serie: FlexoGuideSerie;
@@ -92,6 +90,11 @@ export function FlexoGuidePage() {
   const [empaqueModalOpen, setEmpaqueModalOpen] = useState(false);
 
   const items = useMemo(() => form.empaques.flatMap((item) => item.items), [form.empaques]);
+  const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
+  const selectablePlates = useMemo(
+    () => driverPlates(drivers, form.selectedDriverId),
+    [drivers, form.selectedDriverId]
+  );
   const selectedClientLabel = cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : '';
   const canPreview = Boolean(
     cliente &&
@@ -100,6 +103,11 @@ export function FlexoGuidePage() {
     form.motivoTraslado &&
     form.pesoBruto > 0 &&
     form.numeroBultos > 0 &&
+    form.observaciones.length <= SUNAT_GRE_OBSERVATION_MAX_LENGTH &&
+    items.every((item) =>
+      item.descripcion.trim().length >= SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH &&
+      item.descripcion.trim().length <= SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH
+    ) &&
     form.empaques.length > 0
   );
 
@@ -189,12 +197,13 @@ export function FlexoGuidePage() {
     setForm((current) => ({
       ...current,
       motivoTraslado: value,
-      descripcionMotivoTraslado: reason?.label ?? ''
+      descripcionMotivoTraslado: reason?.description ?? ''
     }));
   }
 
   function changeDriver(driverId: string) {
-    const driver = drivers.find((item) => item.id === driverId);
+    const driver = drivers.find((item) => driverIdentity(item) === driverId);
+    const plates = driverPlates(drivers, driverId);
     invalidatePreview();
     setForm((current) => ({
       ...current,
@@ -205,7 +214,7 @@ export function FlexoGuidePage() {
         nombres: driver?.nombres ?? '',
         apellidos: driver?.apellidos ?? '',
         licencia: driver?.licencia ?? '',
-        placa: driver?.placa ?? ''
+        placa: plates.length === 1 ? plates[0]! : ''
       }
     }));
   }
@@ -444,13 +453,17 @@ export function FlexoGuidePage() {
           />
         </FormField>
         <FormField label="OBSERVACIONES" wide>
-          <input
-            value={form.observaciones}
-            onChange={(event) => {
-              invalidatePreview();
-              setForm((current) => ({ ...current, observaciones: event.target.value }));
-            }}
-          />
+          <div className="limited-field">
+            <input
+              value={form.observaciones}
+              maxLength={SUNAT_GRE_OBSERVATION_MAX_LENGTH}
+              onChange={(event) => {
+                invalidatePreview();
+                setForm((current) => ({ ...current, observaciones: event.target.value }));
+              }}
+            />
+            <CharacterCounter current={form.observaciones.length} maximum={SUNAT_GRE_OBSERVATION_MAX_LENGTH} />
+          </div>
         </FormField>
       </div>
 
@@ -458,9 +471,9 @@ export function FlexoGuidePage() {
         <FormField label="CHOFER">
           <select value={form.selectedDriverId} onChange={(event) => changeDriver(event.target.value)}>
             <option value="">Seleccione chofer</option>
-            {drivers.map((driver) => (
-              <option value={driver.id} key={driver.id}>
-                {driver.numeroDocumento} - {driver.nombres} {driver.apellidos} - {driver.placa}
+            {selectableDrivers.map((driver) => (
+              <option value={driverIdentity(driver)} key={driverIdentity(driver)}>
+                {driver.nombres} {driver.apellidos} - DNI {driver.numeroDocumento} - Lic. {driver.licencia}
               </option>
             ))}
           </select>
@@ -469,7 +482,20 @@ export function FlexoGuidePage() {
           <input className="auto-field" value={form.conductor.licencia} readOnly />
         </FormField>
         <FormField label="PLACA">
-          <input className="auto-field" value={form.conductor.placa} readOnly />
+          <select
+            value={form.conductor.placa}
+            disabled={!form.selectedDriverId || selectablePlates.length === 0}
+            onChange={(event) => {
+              invalidatePreview();
+              setForm((current) => ({
+                ...current,
+                conductor: { ...current.conductor, placa: event.target.value }
+              }));
+            }}
+          >
+            <option value="">Seleccione placa</option>
+            {selectablePlates.map((plate) => <option key={plate} value={plate}>{plate}</option>)}
+          </select>
         </FormField>
       </div>
 

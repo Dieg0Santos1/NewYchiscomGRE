@@ -349,6 +349,12 @@ function validateFlexoPreview(input: FlexoGuidePreviewInput) {
   add('MOTIVO', input.motivoTraslado ? 'ok' : 'error', 'Debe seleccionar un motivo de traslado.');
   add('PESO', input.pesoBruto > 0 ? 'ok' : 'error', 'El peso bruto debe ser mayor a cero.');
   add('BULTOS', input.numeroBultos > 0 ? 'ok' : 'error', 'El numero de bultos debe ser mayor a cero.');
+  add('OBSERVACIONES', input.observaciones.length <= 250 ? 'ok' : 'error', 'Las observaciones no pueden superar los 250 caracteres.');
+  add(
+    'DESCRIPCIONES',
+    input.empaques.every((empaque) => empaque.items.every((item) => item.descripcion.trim().length >= 3 && item.descripcion.trim().length <= 500)) ? 'ok' : 'error',
+    'Cada descripcion debe tener entre 3 y 500 caracteres.'
+  );
   add('CHOFER', input.conductor.numeroDocumento && input.conductor.licencia && input.conductor.placa ? 'ok' : 'warning', 'Complete chofer, licencia y placa antes de declarar.');
   add('EMPAQUES', input.empaques.length > 0 ? 'ok' : 'error', 'Debe seleccionar uno o mas empaques.');
 

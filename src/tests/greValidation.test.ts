@@ -80,4 +80,21 @@ describe('greInputSchema', () => {
       expect(parsed.error.issues.map((issue) => issue.path.join('.'))).toContain('vehiculo');
     }
   });
+
+  it('aplica los limites SUNAT de observaciones y descripcion', () => {
+    expect(greInputSchema.safeParse({
+      ...validGreInput,
+      observaciones: 'X'.repeat(251)
+    }).success).toBe(false);
+
+    expect(greInputSchema.safeParse({
+      ...validGreInput,
+      items: [{ ...validGreInput.items[0], descripcion: 'X'.repeat(501) }]
+    }).success).toBe(false);
+
+    expect(greInputSchema.safeParse({
+      ...validGreInput,
+      items: [{ ...validGreInput.items[0], descripcion: 'AB' }]
+    }).success).toBe(false);
+  });
 });

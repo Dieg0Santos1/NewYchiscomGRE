@@ -4,7 +4,7 @@ import { getGreDefaults } from '../config/greDefaults.js';
 import { GRE_TRASLADO_SERIE_FORMAT_MESSAGE, GRE_TRASLADO_SERIE_PATTERN } from '../config/greTrasladoSeries.js';
 import { mapGreInputToPayload } from '../mappers/grePayloadMapper.js';
 import { toSpeDespatchProcedurePlan } from '../mappers/speDespatchProcedureMapper.js';
-import { greTrasladoInputSchema, type GreTrasladoInputDto } from '../schemas/greTrasladoInputSchema.js';
+import { greTrasladoInputSchema } from '../schemas/greTrasladoInputSchema.js';
 import {
   DirectDbGreTrasladoManualSunatService,
   type GreTrasladoManualSunatService
@@ -152,15 +152,6 @@ export function greTrasladoRoutes(
       return;
     }
 
-    const businessIssues = trasladoBusinessValidationIssues(parsed.data, config);
-    if (businessIssues.length > 0) {
-      res.status(400).json({
-        error: 'VALIDATION_ERROR',
-        issues: businessIssues
-      });
-      return;
-    }
-
     const payload = mapGreInputToPayload(parsed.data, getGreDefaults(config));
     if (parsed.data.transportista) {
       payload.tipoDocumentoTransportista = parsed.data.transportista.tipoDocumentoTransportista;
@@ -232,15 +223,6 @@ export function greTrasladoRoutes(
         return;
       }
 
-      const businessIssues = trasladoBusinessValidationIssues(parsed.data, config);
-      if (businessIssues.length > 0) {
-        res.status(400).json({
-          error: 'VALIDATION_ERROR',
-          issues: businessIssues
-        });
-        return;
-      }
-
       req.log.info(
         sanitizeValue(
           {
@@ -280,24 +262,4 @@ export function greTrasladoRoutes(
   });
 
   return router;
-}
-
-function trasladoBusinessValidationIssues(input: GreTrasladoInputDto, config: AppConfig) {
-  const issues: Array<{ path: string; message: string }> = [];
-
-  if (input.traslado.motivoTraslado === '02') {
-    const destinatarioDocumento = input.destinatario.numeroDocumentoDestinatario.trim();
-    const destinatarioTipo = input.destinatario.tipoDocumentoDestinatario.trim();
-    const remitenteDocumento = config.remitente.numeroDocumento.trim();
-    const remitenteTipo = config.remitente.tipoDocumento.trim();
-
-    if (destinatarioDocumento !== remitenteDocumento || destinatarioTipo !== remitenteTipo) {
-      issues.push({
-        path: 'destinatario.numeroDocumentoDestinatario',
-        message: `Para motivo 02 - COMPRA, SUNAT exige que el destinatario sea igual al remitente (${remitenteTipo}-${remitenteDocumento} ${config.remitente.razonSocial}).`
-      });
-    }
-  }
-
-  return issues;
 }

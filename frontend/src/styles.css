@@ -336,6 +336,28 @@ textarea {
   grid-column: 2;
 }
 
+.limited-field {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+}
+
+.character-counter {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.character-counter.limit-reached {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.table-limited-field .character-counter {
+  padding-right: 2px;
+}
+
 .error-message {
   color: #b91c1c;
 }

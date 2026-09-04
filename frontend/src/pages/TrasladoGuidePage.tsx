@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, Plus, RefreshCw, Search, Send, Trash2, X } from 'lucide-react';
 import { DeclarationSuccessModal } from '../components/DeclarationSuccessModal';
+import { CharacterCounter } from '../components/CharacterCounter';
 import { FormField } from '../components/FormField';
 import { currentTime, sunatDateTime, todayDate } from '../data/defaults';
+import {
+  SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH,
+  SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH,
+  SUNAT_GRE_OBSERVATION_MAX_LENGTH,
+  SUNAT_GRE_TRANSFER_REASONS
+} from '../data/sunatGre';
 import { driverService } from '../services/DriverService';
 import { facturaFcService } from '../services/FacturaFcService';
 import { greFormularioService } from '../services/GreFormularioService';
@@ -17,28 +24,19 @@ import type {
   TrasladoMotivoCode,
   TrasladoPreviewResponse
 } from '../types/traslado';
+import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
 
-const trasladoMotivos: Array<{ codigo: TrasladoMotivoCode; descripcion: string; label: string }> = [
-  { codigo: '03', descripcion: 'OTROS', label: '03 - OTROS' },
-  { codigo: '02', descripcion: 'COMPRA', label: '02 - COMPRA' }
-];
+const trasladoMotivos: Array<{ codigo: TrasladoMotivoCode; descripcion: string; label: string }> =
+  SUNAT_GRE_TRANSFER_REASONS.map((reason) => ({
+    codigo: reason.code,
+    descripcion: reason.description,
+    label: reason.label
+  }));
 
 const trasladoModalidades: Array<{ codigo: TrasladoModalidadCode; label: string }> = [
   { codigo: '02', label: '02 - PRIVADO' },
   { codigo: '01', label: '01 - PUBLICO' }
 ];
-
-const trasladoRemitente = {
-  tipoDocumento: '6',
-  numeroDocumento: '20259402965',
-  razonSocial: 'YCHIFORMAS S.A.'
-} as const;
-const trasladoLocalRemitente = {
-  ubigeo: '140109',
-  direccion: 'AV. LUNA PIZARRO NRO. 1328(1332-1336-1340 PUERTA DE INGRESO 1340)',
-  codigo: '1'
-} as const;
-const compraRemitenteLabel = `${trasladoRemitente.numeroDocumento} - ${trasladoRemitente.razonSocial}`;
 
 function defaultState(): TrasladoFormState {
   const date = todayDate();
@@ -58,7 +56,7 @@ function defaultState(): TrasladoFormState {
     ubigeoPtoLlegada: '',
     direccionPtoLlegada: '',
     codigoPtoLlegada: '1',
-    motivoTraslado: '03',
+    motivoTraslado: '13',
     descripcionMotivoTraslado: 'OTROS',
     modalidadTraslado: '02',
     pesoBrutoTotalBienes: 1,
@@ -109,9 +107,12 @@ export function TrasladoGuidePage() {
   const [successSerie, setSuccessSerie] = useState('');
 
   const payload = useMemo(() => toTrasladoInputDto(form), [form]);
+  const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
+  const selectablePlates = useMemo(
+    () => driverPlates(drivers, form.selectedDriverId),
+    [drivers, form.selectedDriverId]
+  );
   const selectedClientLabel = cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : '';
-  const isCompra = form.motivoTraslado === '02';
-  const isCompraRecipientValid = !isCompra || isRemitenteDestinatario(form);
   const hasDriverData = Boolean(
     form.selectedDriverId &&
     form.numeroDocumentoConductor &&
@@ -128,7 +129,8 @@ export function TrasladoGuidePage() {
   const hasTransportData = form.modalidadTraslado === '02' ? hasDriverData : hasTransportistaData;
   const validItems = form.items.filter((item) =>
     item.codigoProducto.trim() &&
-    item.descripcion.trim() &&
+    item.descripcion.trim().length >= SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH &&
+    item.descripcion.trim().length <= SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH &&
     item.cantidad > 0 &&
     item.unidadMedida.trim()
   );
@@ -136,12 +138,12 @@ export function TrasladoGuidePage() {
     /^T002-\d{8}$/.test(form.serieNumeroGuia) &&
     form.numeroDocumentoDestinatario.trim() &&
     form.razonSocialDestinatario.trim() &&
-    isCompraRecipientValid &&
     /^\d{6}$/.test(form.ubigeoPtoLlegada.trim()) &&
     form.direccionPtoLlegada.trim() &&
     form.codigoPtoLlegada.trim() &&
     form.motivoTraslado &&
     form.descripcionMotivoTraslado.trim() &&
+    form.observaciones.length <= SUNAT_GRE_OBSERVATION_MAX_LENGTH &&
     form.pesoBrutoTotalBienes > 0 &&
     form.numeroBultos > 0 &&
     hasTransportData &&
@@ -149,9 +151,7 @@ export function TrasladoGuidePage() {
     validItems.length === form.items.length
   );
   const canDeclare = isFormValid && previewConfirmed && !declaring;
-  const declareHint = !isCompraRecipientValid
-    ? 'Para 02 - COMPRA, el destinatario debe ser el remitente.'
-    : !isFormValid
+  const declareHint = !isFormValid
     ? 'Complete cliente, destino, motivo, transporte, peso/bultos y cada item manual.'
     : !previewConfirmed
       ? 'Abra Vista previa y confirme antes de declarar.'
@@ -165,7 +165,6 @@ export function TrasladoGuidePage() {
   }, []);
 
   useEffect(() => {
-    if (isCompra && query === compraRemitenteLabel) return;
     if (cliente && query === selectedClientLabel) return;
     if (query.trim().length < 2) {
       setClientes([]);
@@ -177,7 +176,7 @@ export function TrasladoGuidePage() {
     }, 300);
 
     return () => window.clearTimeout(timeout);
-  }, [cliente, isCompra, query, selectedClientLabel]);
+  }, [cliente, query, selectedClientLabel]);
 
   function invalidatePreview() {
     setPreview(null);
@@ -200,12 +199,6 @@ export function TrasladoGuidePage() {
   }
 
   async function searchClientes(showStatus = true) {
-    if (isCompra) {
-      setClientes([]);
-      if (showStatus) setMessage('Para 02 - COMPRA, el destinatario se consigna como el remitente.');
-      return;
-    }
-
     setLoadingClientes(true);
     if (showStatus) setMessage('Buscando clientes...');
     invalidatePreview();
@@ -265,8 +258,6 @@ export function TrasladoGuidePage() {
   }
 
   function changeClientQuery(value: string) {
-    if (isCompra) return;
-
     invalidatePreview();
     setQuery(value);
 
@@ -304,25 +295,12 @@ export function TrasladoGuidePage() {
   function selectMotivo(codigo: TrasladoMotivoCode) {
     const motivo = trasladoMotivos.find((item) => item.codigo === codigo) ?? trasladoMotivos[0]!;
     invalidatePreview();
-    setCliente(null);
-    setClientes([]);
-    setDestinos([]);
-    setSelectedDestinoId('');
-    setQuery(codigo === '02' ? compraRemitenteLabel : '');
     setForm((current) => ({
       ...current,
       motivoTraslado: motivo.codigo,
-      descripcionMotivoTraslado: motivo.descripcion,
-      tipoDocumentoDestinatario: codigo === '02' ? trasladoRemitente.tipoDocumento : current.motivoTraslado === '02' ? '6' : current.tipoDocumentoDestinatario,
-      numeroDocumentoDestinatario: codigo === '02' ? trasladoRemitente.numeroDocumento : current.motivoTraslado === '02' ? '' : current.numeroDocumentoDestinatario,
-      razonSocialDestinatario: codigo === '02' ? trasladoRemitente.razonSocial : current.motivoTraslado === '02' ? '' : current.razonSocialDestinatario,
-      direccionPtoLlegada: codigo === '02' ? trasladoLocalRemitente.direccion : current.motivoTraslado === '02' ? '' : current.direccionPtoLlegada,
-      ubigeoPtoLlegada: codigo === '02' ? trasladoLocalRemitente.ubigeo : current.motivoTraslado === '02' ? '' : current.ubigeoPtoLlegada,
-      codigoPtoLlegada: codigo === '02' ? trasladoLocalRemitente.codigo : current.motivoTraslado === '02' ? '1' : current.codigoPtoLlegada
+      descripcionMotivoTraslado: motivo.descripcion
     }));
-    setMessage(codigo === '02'
-      ? 'Para 02 - COMPRA, SUNAT exige destinatario igual al remitente. Se completo el destino con el local de YCHIFORMAS.'
-      : '');
+    setMessage('');
   }
 
   function selectModalidad(codigo: TrasladoModalidadCode) {
@@ -342,7 +320,8 @@ export function TrasladoGuidePage() {
   }
 
   function selectDriver(driverId: string) {
-    const driver = drivers.find((item) => item.id === driverId);
+    const driver = drivers.find((item) => driverIdentity(item) === driverId);
+    const plates = driverPlates(drivers, driverId);
     invalidatePreview();
     setForm((current) => ({
       ...current,
@@ -352,7 +331,7 @@ export function TrasladoGuidePage() {
       nombreConductor: driver?.nombres ?? '',
       apellidoConductor: driver?.apellidos ?? '',
       numeroLicencia: driver?.licencia ?? '',
-      numeroPlacaVehiculoPrin: driver?.placa ?? ''
+      numeroPlacaVehiculoPrin: plates.length === 1 ? plates[0]! : ''
     }));
   }
 
@@ -476,17 +455,16 @@ export function TrasladoGuidePage() {
                     void searchClientes();
                   }
                 }}
-                placeholder={isCompra ? compraRemitenteLabel : cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : 'RUC o razon social'}
-                disabled={isCompra}
+                placeholder={cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : 'RUC o razon social'}
               />
-              <button type="button" className="icon-button" title="Buscar cliente" onClick={() => void searchClientes()} disabled={loadingClientes || isCompra}>
+              <button type="button" className="icon-button" title="Buscar cliente" onClick={() => void searchClientes()} disabled={loadingClientes}>
                 <Search size={18} />
               </button>
               <button type="button" className="icon-button" title="Limpiar traslado" onClick={clearForm}>
                 <RefreshCw size={18} />
               </button>
             </div>
-            {clientes.length > 0 && !cliente && !isCompra && (
+            {clientes.length > 0 && !cliente && (
               <section className="client-suggestions traslado-client-suggestions">
                 <div className="client-suggestions-title">Seleccione un cliente</div>
                 {clientes.map((item) => (
@@ -577,7 +555,14 @@ export function TrasladoGuidePage() {
           <input type="number" min="1" value={form.numeroBultos} onChange={(event) => updateField('numeroBultos', Number(event.target.value))} />
         </FormField>
         <FormField label="OBSERVACIONES" wide>
-          <input value={form.observaciones} maxLength={250} onChange={(event) => updateField('observaciones', event.target.value)} />
+          <div className="limited-field">
+            <input
+              value={form.observaciones}
+              maxLength={SUNAT_GRE_OBSERVATION_MAX_LENGTH}
+              onChange={(event) => updateField('observaciones', event.target.value)}
+            />
+            <CharacterCounter current={form.observaciones.length} maximum={SUNAT_GRE_OBSERVATION_MAX_LENGTH} />
+          </div>
         </FormField>
       </div>
 
@@ -586,9 +571,9 @@ export function TrasladoGuidePage() {
           <FormField label="CHOFER" required>
             <select value={form.selectedDriverId} onChange={(event) => selectDriver(event.target.value)}>
               <option value="">Seleccione chofer</option>
-              {drivers.map((driver) => (
-                <option value={driver.id} key={driver.id}>
-                  {driver.numeroDocumento} - {driver.nombres} {driver.apellidos} - {driver.placa}
+              {selectableDrivers.map((driver) => (
+                <option value={driverIdentity(driver)} key={driverIdentity(driver)}>
+                  {driver.nombres} {driver.apellidos} - DNI {driver.numeroDocumento} - Lic. {driver.licencia}
                 </option>
               ))}
             </select>
@@ -597,7 +582,14 @@ export function TrasladoGuidePage() {
             <input className="auto-field" value={form.numeroLicencia} readOnly />
           </FormField>
           <FormField label="PLACA">
-            <input className="auto-field" value={form.numeroPlacaVehiculoPrin} readOnly />
+            <select
+              value={form.numeroPlacaVehiculoPrin}
+              disabled={!form.selectedDriverId || selectablePlates.length === 0}
+              onChange={(event) => updateField('numeroPlacaVehiculoPrin', event.target.value)}
+            >
+              <option value="">Seleccione placa</option>
+              {selectablePlates.map((plate) => <option key={plate} value={plate}>{plate}</option>)}
+            </select>
           </FormField>
         </div>
       ) : (
@@ -641,7 +633,15 @@ export function TrasladoGuidePage() {
                     <input value={item.codigoProducto} maxLength={16} onChange={(event) => updateItem(item.id, { codigoProducto: event.target.value.toUpperCase() })} />
                   </td>
                   <td>
-                    <input value={item.descripcion} maxLength={500} onChange={(event) => updateItem(item.id, { descripcion: event.target.value.toUpperCase() })} placeholder="Ej: LAPTOP LENOVO COLOR NEGRO" />
+                    <div className="limited-field table-limited-field">
+                      <input
+                        value={item.descripcion}
+                        maxLength={SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH}
+                        onChange={(event) => updateItem(item.id, { descripcion: event.target.value.toUpperCase() })}
+                        placeholder="Ej: LAPTOP LENOVO COLOR NEGRO"
+                      />
+                      <CharacterCounter current={item.descripcion.length} maximum={SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH} />
+                    </div>
                   </td>
                   <td>
                     <input type="number" min="0.001" step="0.001" value={item.cantidad} onChange={(event) => updateItem(item.id, { cantidad: Number(event.target.value) })} />
@@ -923,9 +923,4 @@ function createOperationId() {
 
 function isCompleteDestination(destination: RecipientAddress) {
   return Boolean(destination.ubigeo && /^\d{6}$/.test(destination.ubigeo) && destination.direccion.trim());
-}
-
-function isRemitenteDestinatario(form: TrasladoFormState) {
-  return form.tipoDocumentoDestinatario.trim() === trasladoRemitente.tipoDocumento
-    && form.numeroDocumentoDestinatario.trim() === trasladoRemitente.numeroDocumento;
 }
