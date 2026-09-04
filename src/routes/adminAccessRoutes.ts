@@ -30,11 +30,11 @@ export function adminAccessRoutes(service: AuthenticationService) {
     next();
   });
 
-  router.get('/api/admin/accesses', (_req, res) => {
-    res.status(200).json({ ok: true, accesses: service.listAccesses() });
+  router.get('/api/admin/accesses', async (_req, res) => {
+    res.status(200).json({ ok: true, accesses: await service.listAccesses() });
   });
 
-  router.post('/api/admin/accesses', (req, res, next) => {
+  router.post('/api/admin/accesses', async (req, res, next) => {
     const parsed = createAccessSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
@@ -48,7 +48,7 @@ export function adminAccessRoutes(service: AuthenticationService) {
     const session = res.locals.authUser as AuthSession;
 
     try {
-      const access = service.createAccess(parsed.data, session.username);
+      const access = await service.createAccess(parsed.data, session.username);
       req.log?.info({
         auditEvent: 'access_created',
         actor: session.username,

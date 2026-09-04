@@ -28,7 +28,8 @@ import type { GreFormularioReleaseOtService } from './services/greFormularioRele
 import type { GreTrasladoManualSunatService } from './services/greTrasladoManualSunatService.js';
 import type { GreTrasladoService } from './services/greTrasladoService.js';
 import type { ReportesEspecialesService } from './services/reportesEspecialesService.js';
-import { FileAuthenticationService, type AuthenticationService } from './services/authService.js';
+import type { AuthenticationService } from './services/authService.js';
+import { SqlAuthenticationService } from './services/sqlAuthenticationService.js';
 
 export function createApp(options?: {
   config?: AppConfig;
@@ -56,7 +57,7 @@ export function createApp(options?: {
   });
   const app = express();
   const existingGreClient = options?.existingGreClient ?? createExistingGreClient(config);
-  const authenticationService = options?.authenticationService ?? new FileAuthenticationService(config);
+  const authenticationService = options?.authenticationService ?? new SqlAuthenticationService(config);
 
   app.disable('x-powered-by');
   app.locals.config = config;

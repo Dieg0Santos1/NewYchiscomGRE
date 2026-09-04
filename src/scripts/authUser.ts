@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { authModules, hashPassword, type AuthModule, type AuthUserRecord } from '../services/authService.js';
+import { loadEnv } from '../config/env.js';
+import { authModules, type AuthModule } from '../services/authService.js';
+import { SqlAuthenticationService } from '../services/sqlAuthenticationService.js';
 
 const args = process.argv.slice(2);
 
@@ -12,10 +12,7 @@ if (args.includes('--secret')) {
 
 const username = argument('--username').trim().toLowerCase();
 const displayName = argument('--name').trim();
-const requestedModules = argument('--modules')
-  .split(',')
-  .map((value) => value.trim())
-  .filter(Boolean);
+const requestedModules = argument('--modules').split(',').map((value) => value.trim()).filter(Boolean);
 const invalidModules = requestedModules.filter((value) => !authModules.includes(value as AuthModule));
 const modules = requestedModules.filter((value): value is AuthModule => authModules.includes(value as AuthModule));
 const administrator = args.includes('--admin');
@@ -27,54 +24,25 @@ if (!displayName) throw new Error('Use --name con el nombre visible.');
 if (invalidModules.length > 0) throw new Error(`Modulos no reconocidos: ${invalidModules.join(', ')}.`);
 if (modules.length === 0) throw new Error('Use --modules con fc, flexo y/o traslado, separados por coma.');
 
-const usersFile = resolve(process.env.AUTH_USERS_FILE || 'config/auth-users.json');
-const users = loadExistingUsers(usersFile);
-const existingIndex = users.findIndex((user) => user.username.toLowerCase() === username);
-if (existingIndex >= 0 && !args.includes('--replace')) {
-  throw new Error(`El usuario ${username} ya existe. Use --replace para renovar su clave y permisos.`);
-}
-
 const passwordEnvironmentName = argument('--password-env').trim();
 const password = passwordEnvironmentName ? process.env[passwordEnvironmentName] ?? '' : generatePassword();
 if (!password) throw new Error(`La variable ${passwordEnvironmentName} no contiene una contrasena.`);
-const record: AuthUserRecord = {
-  username,
-  displayName,
-  passwordHash: hashPassword(password),
-  modules: [...new Set(modules)],
-  active: true,
-  administrator,
-  createdAt: new Date().toISOString(),
-  createdBy: 'provisionamiento-servidor'
-};
 
-if (existingIndex >= 0) users[existingIndex] = record;
-else users.push(record);
+const config = loadEnv();
+const service = new SqlAuthenticationService(config);
+const access = await service.createAccess({ username, displayName, password, modules, administrator }, 'provisionamiento-servidor');
 
-mkdirSync(dirname(usersFile), { recursive: true });
-const temporaryFile = `${usersFile}.tmp`;
-writeFileSync(temporaryFile, `${JSON.stringify({ users }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-renameSync(temporaryFile, usersFile);
-
-console.log(`Usuario: ${username}`);
-console.log(`Nombre: ${displayName}`);
-console.log(`Modulos: ${record.modules.join(', ')}`);
-console.log(`Administrador: ${record.administrator ? 'si' : 'no'}`);
-console.log(`${passwordEnvironmentName ? 'Clave configurada desde variable segura' : `Clave generada: ${password}`}`);
-console.log(`Archivo: ${usersFile}`);
-console.log('La clave no se almacena en texto plano y no puede recuperarse despues.');
+console.log(`Usuario: ${access.username}`);
+console.log(`Nombre: ${access.displayName}`);
+console.log(`Modulos: ${access.modules.join(', ')}`);
+console.log(`Administrador: ${access.administrator ? 'si' : 'no'}`);
+console.log(passwordEnvironmentName ? 'Clave configurada desde variable segura' : `Clave generada: ${password}`);
+console.log(`Base: ${config.greFcDb.database}`);
+console.log('La clave se almaceno unicamente como hash y no puede recuperarse despues.');
 
 function argument(name: string) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] ?? '' : '';
-}
-
-function loadExistingUsers(file: string): AuthUserRecord[] {
-  if (!existsSync(file)) return [];
-
-  const parsed = JSON.parse(readFileSync(file, 'utf8')) as { users?: AuthUserRecord[] };
-  if (!Array.isArray(parsed.users)) throw new Error(`Archivo de usuarios invalido: ${file}`);
-  return parsed.users;
 }
 
 function generatePassword() {

@@ -40,17 +40,20 @@ export type CreateAuthAccessInput = {
   displayName: string;
   password: string;
   modules: AuthModule[];
+  administrator?: boolean;
 };
+export type AuthAttemptContext = { ip?: string; userAgent?: string };
+type MaybePromise<T> = T | Promise<T>;
 
 export class AuthUserAlreadyExistsError extends Error {}
 
 export interface AuthenticationService {
   readonly enabled: boolean;
-  authenticate(username: string, password: string): AuthUserRecord | null;
+  authenticate(username: string, password: string, context?: AuthAttemptContext): MaybePromise<AuthUserRecord | null>;
   createSession(user: AuthUserRecord): { token: string; session: AuthSession };
   verifySession(token: string): AuthSession | null;
-  listAccesses(): AuthAccessRecord[];
-  createAccess(input: CreateAuthAccessInput, actor: string): AuthAccessRecord;
+  listAccesses(): MaybePromise<AuthAccessRecord[]>;
+  createAccess(input: CreateAuthAccessInput, actor: string): MaybePromise<AuthAccessRecord>;
 }
 
 export class FileAuthenticationService implements AuthenticationService {
@@ -76,53 +79,22 @@ export class FileAuthenticationService implements AuthenticationService {
   }
 
   createSession(user: AuthUserRecord) {
-    const issuedAt = Math.floor(Date.now() / 1000);
-    const session: AuthSession = {
-      username: user.username,
-      displayName: user.displayName,
-      modules: [...new Set(user.modules)],
-      administrator: user.administrator,
-      credentialId: passwordFingerprint(user.passwordHash),
-      issuedAt,
-      expiresAt: issuedAt + this.config.auth.sessionHours * 60 * 60
-    };
-    const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
-    const signature = sign(payload, this.config.auth.sessionSecret);
-
-    return { token: `${payload}.${signature}`, session };
+    return createSignedSession(this.config, user);
   }
 
   verifySession(token: string) {
-    const [payload, signature, extra] = token.split('.');
-    if (!payload || !signature || extra) return null;
+    const parsed = verifySignedSession(this.config, token);
+    if (!parsed) return null;
+    const user = this.users.get(normalizeUsername(parsed.username));
+    if (!user || !user.active || parsed.credentialId !== passwordFingerprint(user.passwordHash)) return null;
 
-    const expected = sign(payload, this.config.auth.sessionSecret);
-    const receivedBuffer = Buffer.from(signature);
-    const expectedBuffer = Buffer.from(expected);
-    if (receivedBuffer.length !== expectedBuffer.length || !timingSafeEqual(receivedBuffer, expectedBuffer)) {
-      return null;
-    }
-
-    try {
-      const parsed = sessionSchema.parse(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')));
-      const user = this.users.get(normalizeUsername(parsed.username));
-      if (
-        !user
-        || !user.active
-        || parsed.credentialId !== passwordFingerprint(user.passwordHash)
-        || parsed.expiresAt <= Math.floor(Date.now() / 1000)
-      ) return null;
-
-      return {
-        ...parsed,
-        username: user.username,
-        displayName: user.displayName,
-        modules: user.modules,
-        administrator: user.administrator
-      };
-    } catch {
-      return null;
-    }
+    return {
+      ...parsed,
+      username: user.username,
+      displayName: user.displayName,
+      modules: user.modules,
+      administrator: user.administrator
+    };
   }
 
   listAccesses() {
@@ -149,7 +121,7 @@ export class FileAuthenticationService implements AuthenticationService {
       passwordHash: hashPassword(input.password),
       modules,
       active: true,
-      administrator: false,
+      administrator: input.administrator ?? false,
       createdAt: new Date().toISOString(),
       createdBy: normalizeUsername(actor)
     });
@@ -172,7 +144,41 @@ export function hashPassword(password: string) {
   return `scrypt$${salt.toString('base64url')}$${derivedKey.toString('base64url')}`;
 }
 
-function verifyPassword(password: string, storedHash: string) {
+export function createSignedSession(config: AppConfig, user: AuthUserRecord) {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const session: AuthSession = {
+    username: user.username,
+    displayName: user.displayName,
+    modules: [...new Set(user.modules)],
+    administrator: user.administrator,
+    credentialId: passwordFingerprint(user.passwordHash),
+    issuedAt,
+    expiresAt: issuedAt + config.auth.sessionHours * 60 * 60
+  };
+  const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
+  const signature = sign(payload, config.auth.sessionSecret);
+
+  return { token: `${payload}.${signature}`, session };
+}
+
+export function verifySignedSession(config: AppConfig, token: string) {
+  const [payload, signature, extra] = token.split('.');
+  if (!payload || !signature || extra) return null;
+
+  const expected = sign(payload, config.auth.sessionSecret);
+  const receivedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (receivedBuffer.length !== expectedBuffer.length || !timingSafeEqual(receivedBuffer, expectedBuffer)) return null;
+
+  try {
+    const parsed = sessionSchema.parse(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')));
+    return parsed.expiresAt > Math.floor(Date.now() / 1000) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function verifyPassword(password: string, storedHash: string) {
   const [algorithm, saltValue, hashValue, extra] = storedHash.split('$');
   if (algorithm !== 'scrypt' || !saltValue || !hashValue || extra) return false;
 

@@ -5,14 +5,14 @@ import type { AuthModule, AuthenticationService, AuthSession } from '../services
 export const AUTH_COOKIE_NAME = 'gre_session';
 
 export function authenticateRequests(service: AuthenticationService) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!service.enabled || !req.path.startsWith('/api/')) {
       next();
       return;
     }
 
     const token = readCookie(req, AUTH_COOKIE_NAME);
-    const session = token ? service.verifySession(token) : null;
+    const session = token ? await service.verifySession(token) : null;
     if (!session) {
       res.status(401).json({
         error: 'AUTH_REQUIRED',

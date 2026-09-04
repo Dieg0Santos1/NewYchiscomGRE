@@ -10,7 +10,7 @@ const attemptWindowMs = 15 * 60 * 1000;
 export function authRoutes(config: AppConfig, service: AuthenticationService) {
   const router = Router();
 
-  router.get('/api/auth/me', (req, res) => {
+  router.get('/api/auth/me', async (req, res) => {
     if (!service.enabled) {
       res.status(200).json({
         ok: true,
@@ -26,7 +26,7 @@ export function authRoutes(config: AppConfig, service: AuthenticationService) {
     }
 
     const token = readSessionCookie(req.headers.cookie);
-    const session = token ? service.verifySession(token) : null;
+    const session = token ? await service.verifySession(token) : null;
     if (!session) {
       res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Ingrese al sistema.' });
       return;
@@ -35,7 +35,7 @@ export function authRoutes(config: AppConfig, service: AuthenticationService) {
     res.status(200).json({ ok: true, authEnabled: true, user: publicUser(session) });
   });
 
-  router.post('/api/auth/login', (req, res) => {
+  router.post('/api/auth/login', async (req, res) => {
     if (!service.enabled) {
       res.status(400).json({ error: 'AUTH_DISABLED', message: 'El acceso no esta habilitado.' });
       return;
@@ -53,7 +53,10 @@ export function authRoutes(config: AppConfig, service: AuthenticationService) {
 
     const username = typeof req.body?.username === 'string' ? req.body.username : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const user = service.authenticate(username, password);
+    const user = await service.authenticate(username, password, {
+      ip: req.ip || req.socket.remoteAddress,
+      userAgent: req.get('user-agent')
+    });
 
     if (!user) {
       loginAttempts.set(clientKey, { count: attempt.count + 1, resetAt: attempt.resetAt });

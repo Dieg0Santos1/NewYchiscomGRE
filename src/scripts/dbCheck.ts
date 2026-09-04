@@ -21,6 +21,12 @@ const greFcTables = [
   'dbo.GRE_FC_EVENTO'
 ];
 
+const portalAuthTables = [
+  'dbo.GRE_PORTAL_USUARIO',
+  'dbo.GRE_PORTAL_USUARIO_MODULO',
+  'dbo.GRE_PORTAL_ACCESO_EVENTO'
+];
+
 const ychiObjects = [
   'dbo.tbOrdenTrabajo',
   'dbo.VW_BUSCAS_DOCUMENTOS',
@@ -107,6 +113,34 @@ async function main() {
       results,
       'GRE_FORMULARIOS_TEST'
     );
+    if (config.auth.enabled) {
+      await checkTablesExist(pool, portalAuthTables, results, 'GRE_FORMULARIOS_TEST/AUTH');
+      await checkUniqueColumn(pool, 'dbo.GRE_PORTAL_USUARIO', 'usuario', results, 'GRE_FORMULARIOS_TEST/AUTH');
+      await checkObjectPermissions(
+        pool,
+        [
+          { objectName: 'dbo.GRE_PORTAL_USUARIO', permissions: ['SELECT', 'INSERT'] },
+          { objectName: 'dbo.GRE_PORTAL_USUARIO_MODULO', permissions: ['SELECT', 'INSERT'] },
+          { objectName: 'dbo.GRE_PORTAL_ACCESO_EVENTO', permissions: ['INSERT'] }
+        ],
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH'
+      );
+      await checkForbiddenPermissions(
+        pool,
+        portalAuthTables,
+        ['UPDATE', 'DELETE'],
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH'
+      );
+      await checkForbiddenPermissions(
+        pool,
+        ['dbo.GRE_PORTAL_ACCESO_EVENTO'],
+        ['SELECT'],
+        results,
+        'GRE_FORMULARIOS_TEST/AUTH'
+      );
+    }
     await checkAppLock(pool, results, 'GRE_FORMULARIOS_TEST');
   });
 
