@@ -52,7 +52,7 @@ export class SqlAuthenticationService implements AuthenticationService {
           u.activo AS active,
           u.creadoEn AS createdAt,
           u.creadoPor AS createdBy,
-          m.modulo
+          m.modulo AS module
         FROM dbo.GRE_PORTAL_USUARIO u
         LEFT JOIN dbo.GRE_PORTAL_USUARIO_MODULO m ON m.idUsuario = u.idUsuario
         WHERE u.usuario = @username
@@ -100,7 +100,7 @@ export class SqlAuthenticationService implements AuthenticationService {
           u.activo AS active,
           u.creadoEn AS createdAt,
           u.creadoPor AS createdBy,
-          m.modulo
+          m.modulo AS module
         FROM dbo.GRE_PORTAL_USUARIO u
         LEFT JOIN dbo.GRE_PORTAL_USUARIO_MODULO m ON m.idUsuario = u.idUsuario
         ORDER BY u.nombre, u.usuario, m.modulo;
