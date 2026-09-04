@@ -11,13 +11,15 @@ const mary: AuthUserRecord = {
   displayName: 'Mary',
   passwordHash: 'hash-no-usado-en-mock',
   modules: ['traslado'],
-  active: true
+  active: true,
+  administrator: false
 };
 
 const session: AuthSession = {
   username: mary.username,
   displayName: mary.displayName,
   modules: mary.modules,
+  administrator: false,
   credentialId: 'credencial-prueba',
   issuedAt: 1,
   expiresAt: 4_000_000_000
@@ -36,7 +38,9 @@ function createProtectedApp() {
     enabled: true,
     authenticate: vi.fn((username, password) => username === 'mary' && password === 'correcta' ? mary : null),
     createSession: vi.fn(() => ({ token: 'token-valido', session })),
-    verifySession: vi.fn((token) => token === 'token-valido' ? session : null)
+    verifySession: vi.fn((token) => token === 'token-valido' ? session : null),
+    listAccesses: vi.fn(() => []),
+    createAccess: vi.fn()
   };
   const app = express();
   app.use(express.json());

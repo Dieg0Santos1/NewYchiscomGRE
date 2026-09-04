@@ -18,7 +18,8 @@ export function authRoutes(config: AppConfig, service: AuthenticationService) {
         user: {
           username: 'desarrollo',
           displayName: 'Desarrollo local',
-          modules: ['fc', 'flexo', 'traslado']
+          modules: ['fc', 'flexo', 'traslado'],
+          administrator: false
         }
       });
       return;
@@ -93,11 +94,12 @@ function cookieOptions(config: AppConfig) {
   };
 }
 
-function publicUser(session: { username: string; displayName: string; modules: string[] }) {
+function publicUser(session: { username: string; displayName: string; modules: string[]; administrator: boolean }) {
   return {
     username: session.username,
     displayName: session.displayName,
-    modules: session.modules
+    modules: session.modules,
+    administrator: session.administrator
   };
 }
 

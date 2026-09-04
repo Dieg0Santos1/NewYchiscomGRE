@@ -18,6 +18,7 @@ const requestedModules = argument('--modules')
   .filter(Boolean);
 const invalidModules = requestedModules.filter((value) => !authModules.includes(value as AuthModule));
 const modules = requestedModules.filter((value): value is AuthModule => authModules.includes(value as AuthModule));
+const administrator = args.includes('--admin');
 
 if (!username || !/^[a-z0-9._-]{3,80}$/.test(username)) {
   throw new Error('Use --username con 3 a 80 caracteres: letras, numeros, punto, guion o guion bajo.');
@@ -33,13 +34,18 @@ if (existingIndex >= 0 && !args.includes('--replace')) {
   throw new Error(`El usuario ${username} ya existe. Use --replace para renovar su clave y permisos.`);
 }
 
-const password = generatePassword();
+const passwordEnvironmentName = argument('--password-env').trim();
+const password = passwordEnvironmentName ? process.env[passwordEnvironmentName] ?? '' : generatePassword();
+if (!password) throw new Error(`La variable ${passwordEnvironmentName} no contiene una contrasena.`);
 const record: AuthUserRecord = {
   username,
   displayName,
   passwordHash: hashPassword(password),
   modules: [...new Set(modules)],
-  active: true
+  active: true,
+  administrator,
+  createdAt: new Date().toISOString(),
+  createdBy: 'provisionamiento-servidor'
 };
 
 if (existingIndex >= 0) users[existingIndex] = record;
@@ -53,9 +59,10 @@ renameSync(temporaryFile, usersFile);
 console.log(`Usuario: ${username}`);
 console.log(`Nombre: ${displayName}`);
 console.log(`Modulos: ${record.modules.join(', ')}`);
-console.log(`Clave temporal: ${password}`);
+console.log(`Administrador: ${record.administrator ? 'si' : 'no'}`);
+console.log(`${passwordEnvironmentName ? 'Clave configurada desde variable segura' : `Clave generada: ${password}`}`);
 console.log(`Archivo: ${usersFile}`);
-console.log('Guarde la clave ahora: no se almacena en texto plano y no puede recuperarse despues.');
+console.log('La clave no se almacena en texto plano y no puede recuperarse despues.');
 
 function argument(name: string) {
   const index = args.indexOf(name);

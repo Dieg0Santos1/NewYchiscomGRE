@@ -11,6 +11,7 @@ import { SpecialReportsPage } from './pages/SpecialReportsPage';
 import { TrasladoGuidePage } from './pages/TrasladoGuidePage';
 import { TrasladoReportPage } from './pages/TrasladoReportPage';
 import { LoginPage } from './pages/LoginPage';
+import { AdminAccessPage } from './pages/AdminAccessPage';
 import { authService } from './services/AuthService';
 import type { AuthModule, AuthSessionResponse, AuthUser } from './types/auth';
 import './styles.css';
@@ -26,7 +27,8 @@ const routes = new Set([
   '/flexo/facturas',
   '/flexo/reportes',
   '/traslado/guias/nueva',
-  '/traslado/reportes'
+  '/traslado/reportes',
+  '/administracion/accesos'
 ]);
 
 function readRoute() {
@@ -104,6 +106,8 @@ function Shell() {
                 ? <TrasladoReportPage />
             : route === '/reportes/especiales'
         ? <SpecialReportsPage />
+        : route === '/administracion/accesos'
+          ? <AdminAccessPage />
         : route === '/facturas'
           ? <InvoicePage />
           : route === '/guias/listado'
@@ -120,6 +124,7 @@ function moduleForRoute(route: string): AuthModule {
 }
 
 function isRouteAllowed(route: string, user: AuthUser) {
+  if (route === '/administracion/accesos') return user.administrator;
   return routes.has(route) && user.modules.includes(moduleForRoute(route));
 }
 

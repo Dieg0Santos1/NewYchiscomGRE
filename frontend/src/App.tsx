@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import type { AuthModule, AuthUser } from './types/auth';
 
 type AppProps = {
@@ -11,6 +12,7 @@ type AppProps = {
 
 export default function App({ route, onNavigate, children, user, onLogout }: AppProps) {
   const isActive = (target: string) => (route === target ? 'active' : undefined);
+  const isAdminRoute = route === '/administracion/accesos';
   const module = route.startsWith('/flexo') ? 'flexo' : route.startsWith('/traslado') ? 'traslado' : 'fc';
   const routes = module === 'flexo'
     ? {
@@ -34,7 +36,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
       };
 
   const switchModule = (nextModule: AuthModule) => {
-    if (nextModule === module) return;
+    if (nextModule === module && !isAdminRoute) return;
     onNavigate(
       nextModule === 'flexo'
         ? '/flexo/guias/nueva'
@@ -46,12 +48,21 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
 
   return (
     <div className="app-shell">
-      <header className={`topbar topbar-${module}`}>
+      <header className={`topbar topbar-${isAdminRoute ? 'admin' : module}`}>
         <div className="topbar-main">
+          {user.administrator && (
+            <button
+              type="button"
+              className={`admin-panel-link${isAdminRoute ? ' active' : ''}`}
+              onClick={() => onNavigate('/administracion/accesos')}
+            >
+              <ShieldCheck size={17} /> Administración
+            </button>
+          )}
           <div className="topbar-title">Ychiformas - Facturacion</div>
           <div className="topbar-account">
             <div className="module-switch" aria-label="Módulo">
-              {user.modules.includes('fc') && <button type="button" className={module === 'fc' ? 'active' : ''} onClick={() => switchModule('fc')}>FC</button>}
+              {user.modules.includes('fc') && <button type="button" className={!isAdminRoute && module === 'fc' ? 'active' : ''} onClick={() => switchModule('fc')}>FC</button>}
               {user.modules.includes('flexo') && <button type="button" className={module === 'flexo' ? 'active' : ''} onClick={() => switchModule('flexo')}>Flexo</button>}
               {user.modules.includes('traslado') && <button type="button" className={module === 'traslado' ? 'active' : ''} onClick={() => switchModule('traslado')}>Guía 2</button>}
             </div>
@@ -59,7 +70,9 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
           </div>
         </div>
         <nav className="topbar-nav" aria-label="Principal">
-          {module === 'fc' && (
+          {isAdminRoute ? (
+            <a className="active" href="#/administracion/accesos" onClick={() => onNavigate('/administracion/accesos')}>Accesos</a>
+          ) : module === 'fc' && (
             <>
               <a className={isActive('/fc/pre-guias')} href="#/fc/pre-guias" onClick={() => onNavigate('/fc/pre-guias')}>
                 Pre-guias
@@ -69,14 +82,14 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
               </a>
             </>
           )}
-          <a
-            className={isActive(routes.guias)}
-            href={`#${routes.guias}`}
-            onClick={() => onNavigate(routes.guias)}
-          >
-            {module === 'fc' ? 'GRE' : 'Guias'}
-          </a>
-          {module !== 'traslado' && (
+          {!isAdminRoute && <a
+              className={isActive(routes.guias)}
+              href={`#${routes.guias}`}
+              onClick={() => onNavigate(routes.guias)}
+            >
+              {module === 'fc' ? 'GRE' : 'Guias'}
+            </a>}
+          {!isAdminRoute && module !== 'traslado' && (
             <a
               className={isActive(routes.facturas)}
               href={`#${routes.facturas}`}
@@ -85,14 +98,14 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
               Facturas
             </a>
           )}
-          <a
+          {!isAdminRoute && <a
             className={isActive(routes.reportes)}
             href={`#${routes.reportes}`}
             onClick={() => onNavigate(routes.reportes)}
           >
             Reportes
-          </a>
-          {module === 'fc' && (
+          </a>}
+          {!isAdminRoute && module === 'fc' && (
             <a
               className={isActive(routes.especiales)}
               href={`#${routes.especiales}`}

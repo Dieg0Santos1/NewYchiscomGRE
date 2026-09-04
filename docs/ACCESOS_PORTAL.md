@@ -36,7 +36,7 @@ Ejecute desde la carpeta desplegada:
 npm run auth:user -- --username mary --name "Mary" --modules traslado
 ```
 
-El comando muestra una contraseña temporal una sola vez. Entréguela de forma privada; no la copie en Git, chats grupales ni documentos compartidos.
+El comando muestra una contraseña generada una sola vez. Entréguela de forma privada; no la copie en Git, chats grupales ni documentos compartidos.
 
 Después de crear o cambiar usuarios, reinicie el servicio:
 
@@ -66,6 +66,27 @@ npm run auth:user -- --username mary --name "Mary" --modules traslado --replace
 ```
 
 El comando genera una nueva contraseña y deja inválida la anterior después de reiniciar el servicio.
+
+## Panel de administración
+
+El panel `Administración > Accesos` permite al SuperAdmin:
+
+- consultar las cuentas activas y sus módulos;
+- crear credenciales permanentes con una contraseña elegida;
+- asignar acceso a FC, Flexo y/o Guía 2.
+
+Las contraseñas se almacenan exclusivamente como hash `scrypt` y nunca se devuelven a la interfaz. Cada alta registra fecha y usuario administrador creador.
+
+El SuperAdmin inicial se provisiona una sola vez desde el servidor. Para evitar escribir la contraseña en los argumentos del proceso, cárguela mediante una variable de entorno temporal:
+
+```powershell
+$credential = Get-Credential -UserName SuperAdmin -Message "Credencial inicial del portal"
+$env:AUTH_NEW_USER_PASSWORD = $credential.GetNetworkCredential().Password
+npm run auth:user -- --username SuperAdmin --name "SuperAdmin" --modules fc,flexo,traslado --admin --password-env AUTH_NEW_USER_PASSWORD
+Remove-Item Env:AUTH_NEW_USER_PASSWORD
+```
+
+El archivo `config/auth-users.json` debe conservarse entre despliegues; no debe publicarse en Git ni reemplazarse al copiar una nueva versión.
 
 ## Despliegue
 

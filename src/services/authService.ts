@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import type { AppConfig } from '../config/env.js';
 
@@ -12,7 +12,10 @@ const userRecordSchema = z.object({
   displayName: z.string().trim().min(1).max(120),
   passwordHash: z.string().regex(/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/),
   modules: z.array(z.enum(authModules)).min(1),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  administrator: z.boolean().default(false),
+  createdAt: z.string().datetime().optional(),
+  createdBy: z.string().trim().min(1).max(80).optional()
 });
 
 const usersFileSchema = z.object({
@@ -23,6 +26,7 @@ const sessionSchema = z.object({
   username: z.string().min(1),
   displayName: z.string().min(1),
   modules: z.array(z.enum(authModules)).min(1),
+  administrator: z.boolean().default(false),
   credentialId: z.string().min(1),
   issuedAt: z.number().int(),
   expiresAt: z.number().int()
@@ -30,21 +34,34 @@ const sessionSchema = z.object({
 
 export type AuthUserRecord = z.infer<typeof userRecordSchema>;
 export type AuthSession = z.infer<typeof sessionSchema>;
+export type AuthAccessRecord = Omit<AuthUserRecord, 'passwordHash'>;
+export type CreateAuthAccessInput = {
+  username: string;
+  displayName: string;
+  password: string;
+  modules: AuthModule[];
+};
+
+export class AuthUserAlreadyExistsError extends Error {}
 
 export interface AuthenticationService {
   readonly enabled: boolean;
   authenticate(username: string, password: string): AuthUserRecord | null;
   createSession(user: AuthUserRecord): { token: string; session: AuthSession };
   verifySession(token: string): AuthSession | null;
+  listAccesses(): AuthAccessRecord[];
+  createAccess(input: CreateAuthAccessInput, actor: string): AuthAccessRecord;
 }
 
 export class FileAuthenticationService implements AuthenticationService {
   readonly enabled: boolean;
   private readonly users: Map<string, AuthUserRecord>;
+  private readonly usersFile: string;
 
   constructor(private readonly config: AppConfig) {
     this.enabled = config.auth.enabled;
-    this.users = this.enabled ? loadUsers(config.auth.usersFile) : new Map();
+    this.usersFile = resolve(config.auth.usersFile);
+    this.users = this.enabled ? loadUsers(this.usersFile) : new Map();
   }
 
   authenticate(username: string, password: string) {
@@ -64,6 +81,7 @@ export class FileAuthenticationService implements AuthenticationService {
       username: user.username,
       displayName: user.displayName,
       modules: [...new Set(user.modules)],
+      administrator: user.administrator,
       credentialId: passwordFingerprint(user.passwordHash),
       issuedAt,
       expiresAt: issuedAt + this.config.auth.sessionHours * 60 * 60
@@ -99,17 +117,54 @@ export class FileAuthenticationService implements AuthenticationService {
         ...parsed,
         username: user.username,
         displayName: user.displayName,
-        modules: user.modules
+        modules: user.modules,
+        administrator: user.administrator
       };
     } catch {
       return null;
     }
   }
+
+  listAccesses() {
+    return [...this.users.values()]
+      .map(toAccessRecord)
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, 'es'));
+  }
+
+  createAccess(input: CreateAuthAccessInput, actor: string) {
+    const username = normalizeUsername(input.username);
+    if (!/^[a-z0-9._-]{3,80}$/.test(username)) {
+      throw new Error('El usuario debe tener entre 3 y 80 caracteres y usar letras, numeros, punto, guion o guion bajo.');
+    }
+    if (this.users.has(username)) throw new AuthUserAlreadyExistsError(`El usuario ${username} ya existe.`);
+
+    const displayName = input.displayName.trim();
+    if (!displayName || displayName.length > 120) throw new Error('Ingrese un nombre de hasta 120 caracteres.');
+    const modules = [...new Set(input.modules)].filter((module): module is AuthModule => authModules.includes(module));
+    if (modules.length === 0) throw new Error('Seleccione al menos un modulo.');
+
+    const user = userRecordSchema.parse({
+      username,
+      displayName,
+      passwordHash: hashPassword(input.password),
+      modules,
+      active: true,
+      administrator: false,
+      createdAt: new Date().toISOString(),
+      createdBy: normalizeUsername(actor)
+    });
+    const nextUsers = new Map(this.users);
+    nextUsers.set(username, user);
+    persistUsers(this.usersFile, [...nextUsers.values()]);
+    this.users.set(username, user);
+
+    return toAccessRecord(user);
+  }
 }
 
 export function hashPassword(password: string) {
-  if (password.length < 12) {
-    throw new Error('La contrasena debe tener al menos 12 caracteres');
+  if (password.length < 8 || password.length > 128) {
+    throw new Error('La contrasena debe tener entre 8 y 128 caracteres');
   }
 
   const salt = randomBytes(16);
@@ -159,6 +214,18 @@ function loadUsers(usersFile: string) {
   }
 
   return users;
+}
+
+function persistUsers(usersFile: string, users: AuthUserRecord[]) {
+  mkdirSync(dirname(usersFile), { recursive: true });
+  const temporaryFile = `${usersFile}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temporaryFile, `${JSON.stringify({ users }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  renameSync(temporaryFile, usersFile);
+}
+
+function toAccessRecord(user: AuthUserRecord): AuthAccessRecord {
+  const { passwordHash: _passwordHash, ...access } = user;
+  return { ...access, modules: [...access.modules] };
 }
 
 function normalizeUsername(value: string) {

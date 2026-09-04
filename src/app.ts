@@ -18,6 +18,7 @@ import { greTrasladoRoutes } from './routes/greTrasladoRoutes.js';
 import { healthRoutes } from './routes/healthRoutes.js';
 import { reportesEspecialesRoutes } from './routes/reportesEspecialesRoutes.js';
 import { authRoutes } from './routes/authRoutes.js';
+import { adminAccessRoutes } from './routes/adminAccessRoutes.js';
 import { sanitizeValue } from './utils/sanitize.js';
 import type { FcFacturaService } from './services/fcFacturaService.js';
 import type { FlexoFacturaService } from './services/flexoFacturaService.js';
@@ -71,6 +72,7 @@ export function createApp(options?: {
   app.use(healthRoutes());
   app.use(authRoutes(config, authenticationService));
   app.use(authenticateRequests(authenticationService));
+  app.use(adminAccessRoutes(authenticationService));
   app.use(authorizeApiModules(config));
   app.use(greRoutes(config, existingGreClient));
   app.use(flexoRoutes(config));
