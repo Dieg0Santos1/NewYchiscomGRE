@@ -19,7 +19,13 @@ const internalGuideSchema = z.object({
   observaciones: z.string().trim().max(50),
   formaPago: z.string().trim().max(80).optional().default(''),
   idEmpleado: z.number().int().positive().nullable().optional(),
-  idMotivoTraslado: z.number().int().nonnegative().nullable().optional()
+  idMotivoTraslado: z.number().int().nonnegative().nullable().optional(),
+  detalles: z.array(z.object({
+    idRecepcionOT: z.number().int().positive(),
+    descripcion: z.string().trim().max(250),
+    cantidad: z.number().positive(),
+    unidad: z.string().trim().min(1).max(20)
+  })).optional().default([])
 });
 
 export type FcLegacyWorkflowRouteService = Pick<

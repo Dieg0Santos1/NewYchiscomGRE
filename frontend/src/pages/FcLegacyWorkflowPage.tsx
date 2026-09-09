@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ArrowRight, CheckCircle2, FilePlus2, ListFilter, Search, X } from 'lucide-react';
 import { fcLegacyWorkflowService } from '../services/FcLegacyWorkflowService';
-import type { FcLegacyCatalogs, FcLegacyClient, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
+import type { FcLegacyCatalogs, FcLegacyClient, FcLegacyGuideItem, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
 
 type Props = { mode: 'pre-guide' | 'internal-guide' };
 type Picker = 'clients' | 'work-orders' | 'pending' | 'ready' | null;
@@ -26,6 +26,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
   const [selectedClient, setSelectedClient] = useState<FcLegacyClient | null>(null);
   const [selectedOt, setSelectedOt] = useState<FcLegacyWorkOrder | null>(null);
   const [selectedReceptions, setSelectedReceptions] = useState<FcLegacyReception[]>([]);
+  const [guideItems, setGuideItems] = useState<FcLegacyGuideItem[]>([]);
   const [preGuide, setPreGuide] = useState({ cantidad: 0, del: '', al: '' });
   const [guide, setGuide] = useState({
     serie: '001' as '001' | '003',
@@ -51,10 +52,14 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setSelectedClient(null);
     setSelectedOt(null);
     setSelectedReceptions([]);
-    setCatalogsLoading(true);
+    setGuideItems([]);
+    setCatalogsLoading(mode === 'internal-guide');
+    const catalogsRequest = mode === 'internal-guide'
+      ? fcLegacyWorkflowService.catalogs()
+      : Promise.resolve({ formasPago: [], vendedores: [], motivos: [], warnings: [] });
     Promise.all([
       fcLegacyWorkflowService.capabilities(),
-      fcLegacyWorkflowService.catalogs()
+      catalogsRequest
     ])
       .then(([capabilities, loadedCatalogs]) => {
         setWriteEnabled(capabilities.writeEnabled);
@@ -112,6 +117,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setSelectedClient(row);
     setSelectedOt(null);
     setSelectedReceptions([]);
+    setGuideItems([]);
     setPreGuide({ cantidad: 0, del: '', al: '' });
     setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0 }));
     setPicker(null);
@@ -159,6 +165,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
   function toggleReception(row: FcLegacyReception) {
     if (selectedIds.includes(row.idRecepcionOT)) {
       setSelectedReceptions((current) => current.filter((item) => item.idRecepcionOT !== row.idRecepcionOT));
+      setGuideItems((current) => current.filter((item) => item.idRecepcionOT !== row.idRecepcionOT));
       return;
     }
     if (selectedClient && row.idClieProv !== selectedClient.idClieProv) {
@@ -169,6 +176,19 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0 }));
     }
     setSelectedReceptions((current) => [...current, row]);
+    setGuideItems((current) => current.some((item) => item.idRecepcionOT === row.idRecepcionOT)
+      ? current
+      : [...current, {
+          idRecepcionOT: row.idRecepcionOT,
+          descripcion: row.descripcion || `${row.numeroOt} | ${row.del} - ${row.al}`,
+          cantidad: Number(row.cantidad || 0),
+          unidad: row.unidad || 'MLL'
+        }]
+    );
+  }
+
+  function updateGuideItem(idRecepcionOT: number, patch: Partial<FcLegacyGuideItem>) {
+    setGuideItems((current) => current.map((item) => item.idRecepcionOT === idRecepcionOT ? { ...item, ...patch } : item));
   }
 
   async function createInternalGuide() {
@@ -176,11 +196,12 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     if (!window.confirm(`Emitir guia interna ${guide.serie} con ${selectedIds.length} recepcion(es)?`)) return;
     setLoading(true);
     try {
-      const result = await fcLegacyWorkflowService.createInternalGuide({ ...guide, idRecepciones: selectedIds });
+      const result = await fcLegacyWorkflowService.createInternalGuide({ ...guide, idRecepciones: selectedIds, detalles: guideItems });
       const serieNumero = result.internalGuide?.serieNumero ?? guide.serie;
       setLastInternalGuide({ serieNumero });
       setMessage(`Guia interna ${serieNumero} creada con trazabilidad por recepcion. Ya puede buscarse en GRE.`);
       setSelectedReceptions([]);
+      setGuideItems([]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudo crear la guia interna.');
     } finally { setLoading(false); }
@@ -229,16 +250,6 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
         </div>
       ) : (
         <div className="legacy-content">
-          <div className="legacy-action-grid legacy-guide-top-grid">
-            <SelectionCard title="Cliente" description="Selecciona el cliente antes de buscar recepciones." buttonLabel="Buscar cliente" onOpen={() => void openPicker('clients')}>
-              <ClientSummary client={selectedClient} />
-            </SelectionCard>
-
-            <SelectionCard title="Recepciones" description="Solo se agrupan recepciones aceptadas del mismo cliente." buttonLabel="Seleccionar recepciones" onOpen={() => void openPicker('ready')}>
-              {selectedReceptions.length > 0 ? <div className="legacy-selected-summary"><strong>{selectedReceptions.length} recepcion(es)</strong><span>Total seleccionado: {selectedReceptionTotal.toFixed(2)}</span><div className="legacy-selection-chips">{selectedReceptions.map((row) => <button key={row.idRecepcionOT} type="button" onClick={() => toggleReception(row)} title="Quitar recepcion">#{row.idRecepcionOT} | {row.numeroOt} <X size={13} /></button>)}</div></div> : <div className="legacy-empty-selection">Ninguna recepcion seleccionada</div>}
-            </SelectionCard>
-          </div>
-
           {lastInternalGuide?.serieNumero && (
             <div className="legacy-next-action">
               <div>
@@ -254,7 +265,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
           <div className="legacy-guide-shell">
             <div className="legacy-guide-number"><span>N#:</span><strong>{guide.serie}-por asignar</strong></div>
             <div className="legacy-guide-form">
-              <label className="legacy-wide-field">Cliente<input value={selectedClient?.cliente ?? ''} readOnly placeholder="Selecciona un cliente" /></label>
+              <label className="legacy-wide-field legacy-lookup-field">Cliente<div><input value={selectedClient?.cliente ?? ''} readOnly placeholder="Selecciona un cliente" /><button type="button" className="icon-button" onClick={() => void openPicker('clients')} title="Buscar cliente"><Search size={17} /></button></div></label>
               <label>Serie<select value={guide.serie} onChange={(event) => setGuide({ ...guide, serie: event.target.value as '001' | '003' })}><option value="001">001</option><option value="003">003</option></select></label>
               <label>Forma pago<select value={guide.formaPago} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, formaPago: event.target.value })}><option value="">Seleccione forma de pago</option>{catalogs.formasPago.map((row) => <option key={row.id} value={row.valor || row.nombre}>{row.nombre}</option>)}</select></label>
               <label>O/C<input value={guide.ordenCompra} onChange={(event) => setGuide({ ...guide, ordenCompra: event.target.value })} /></label>
@@ -262,10 +273,11 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
               <label className="legacy-wide-field">Direccion entrega<input value={guide.direccion} onChange={(event) => setGuide({ ...guide, direccion: event.target.value })} /></label>
               <label>Distrito fiscal<input type="number" min="1" value={guide.idDistrito || ''} onChange={(event) => setGuide({ ...guide, idDistrito: Number(event.target.value) })} /></label>
               <label>Vendedor<select value={guide.idEmpleado ?? ''} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idEmpleado: event.target.value ? Number(event.target.value) : null })}><option value="">Seleccione vendedor</option>{catalogs.vendedores.map((row) => <option key={row.idEmpleado} value={row.idEmpleado}>{row.nombre}</option>)}</select></label>
+              <label className="legacy-wide-field legacy-lookup-field">Descripcion<div><input value={guideItems[0]?.descripcion ?? ''} readOnly placeholder="Presione Enter para seleccionar OT recepcionada" onKeyDown={(event) => { if (event.key === 'Enter') void openPicker('ready'); }} /><button type="button" className="icon-button" onClick={() => void openPicker('ready')} title="Seleccionar OT recepcionada"><Search size={17} /></button></div></label>
               <label className="legacy-wide-field">Observaciones<input maxLength={50} value={guide.observaciones} onChange={(event) => setGuide({ ...guide, observaciones: event.target.value })} placeholder="Maximo 50 caracteres en Ychiscom" /></label>
-              <button type="button" className="primary-button" disabled={!writeEnabled || selectedIds.length === 0 || !guide.direccion || guide.idDistrito <= 0 || loading} onClick={() => void createInternalGuide()}><FilePlus2 size={17} /> Emitir guia ({selectedIds.length})</button>
+              <button type="button" className="primary-button" disabled={!writeEnabled || selectedIds.length === 0 || !guide.direccion || guide.idDistrito <= 0 || guideItems.some((item) => item.cantidad <= 0 || !item.unidad.trim()) || loading} onClick={() => void createInternalGuide()}><FilePlus2 size={17} /> Emitir guia ({selectedIds.length})</button>
             </div>
-            <SelectedReceptionTable rows={selectedReceptions} />
+            <SelectedReceptionTable rows={selectedReceptions} items={guideItems} onChange={updateGuideItem} onRemove={toggleReception} />
           </div>
         </div>
       )}
@@ -273,7 +285,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       {picker === 'clients' && <LegacyPickerModal title="Seleccionar cliente" query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={clients.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por cliente, RUC, OT u OV"><ClientTable rows={clients} onSelect={chooseClient} /></LegacyPickerModal>}
       {picker === 'work-orders' && <LegacyPickerModal title={`Seleccionar OT / OV${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={workOrders.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por OT u OV"><WorkOrderTable rows={workOrders} onSelect={chooseOt} /></LegacyPickerModal>}
       {picker === 'pending' && <LegacyPickerModal title="Pre-guias pendientes de aceptacion" query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={pending.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o cliente"><ReceptionTable rows={pending} actionLabel="Aceptar" disabled={!writeEnabled || loading} onAction={acceptPreGuide} /></LegacyPickerModal>}
-      {picker === 'ready' && <LegacyPickerModal title={`Seleccionar recepciones${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT u OV" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReceptionTable rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
+      {picker === 'ready' && <LegacyPickerModal title={`OT recepcionadas${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT u OV" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReceptionTable rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
     </section>
   );
 }
@@ -323,8 +335,28 @@ function ReceptionTable({ rows, selectedIds = [], onToggle, actionLabel, onActio
   return <><table className="legacy-table"><thead><tr>{onToggle && <th></th>}<th>Recepcion</th><th>OT</th><th>OV</th><th>Cliente</th><th>Cantidad</th><th>Rango</th><th>Estado</th>{onAction && <th></th>}</tr></thead><tbody>{rows.length === 0 ? <tr><td className="empty-row" colSpan={onToggle || onAction ? 9 : 7}>Sin resultados</td></tr> : pager.visibleRows.map((row) => <tr key={row.idRecepcionOT} className={selectedIds.includes(row.idRecepcionOT) ? 'legacy-row-selected' : ''}>{onToggle && <td><input type="checkbox" checked={selectedIds.includes(row.idRecepcionOT)} onChange={() => onToggle(row)} /></td>}<td>{row.idRecepcionOT}</td><td>{row.numeroOt}</td><td>{row.numeroOv || row.idOrdenVenta}</td><td>{row.cliente}</td><td>{row.cantidad} {row.unidad}</td><td>{row.del} - {row.al}</td><td>{row.estadoOt}/{row.estadoGuia}</td>{onAction && <td><button type="button" className="select-row-button" disabled={disabled} onClick={() => onAction(row)}><CheckCircle2 size={15} /> {actionLabel}</button></td>}</tr>)}</tbody></table><TablePager {...pager} /></>;
 }
 
-function SelectedReceptionTable({ rows }: { rows: FcLegacyReception[] }) {
-  return <div className="legacy-selected-table"><table className="legacy-table"><thead><tr><th>Item</th><th>Descripcion</th><th>Cantidad</th><th>Unidad</th></tr></thead><tbody>{rows.length === 0 ? <tr><td className="empty-row" colSpan={4}>Sin recepciones seleccionadas</td></tr> : rows.map((row, index) => <tr key={row.idRecepcionOT}><td>{index + 1}</td><td>{row.numeroOt} | {row.del} - {row.al}</td><td>{row.cantidad}</td><td>{row.unidad}</td></tr>)}</tbody></table></div>;
+function SelectedReceptionTable({
+  rows,
+  items,
+  onChange,
+  onRemove
+}: {
+  rows: FcLegacyReception[];
+  items: FcLegacyGuideItem[];
+  onChange: (idRecepcionOT: number, patch: Partial<FcLegacyGuideItem>) => void;
+  onRemove: (row: FcLegacyReception) => void;
+}) {
+  const units = ['MLL', 'MIL', 'NIU', 'UND', 'KGM', 'ZZ'];
+
+  return <div className="legacy-selected-table"><table className="legacy-table legacy-detail-table"><thead><tr><th>Item</th><th>OT</th><th>Descripcion</th><th>Cantidad</th><th>U.M.</th><th></th></tr></thead><tbody>{rows.length === 0 ? <tr><td className="empty-row" colSpan={6}>Presione Enter en descripcion o use la lupa para seleccionar OT recepcionadas.</td></tr> : rows.map((row, index) => {
+    const item = items.find((candidate) => candidate.idRecepcionOT === row.idRecepcionOT) ?? {
+      idRecepcionOT: row.idRecepcionOT,
+      descripcion: row.descripcion || `${row.numeroOt} | ${row.del} - ${row.al}`,
+      cantidad: Number(row.cantidad || 0),
+      unidad: row.unidad || 'MLL'
+    };
+    return <tr key={row.idRecepcionOT}><td>{index + 1}</td><td>{row.numeroOt}</td><td><input maxLength={250} value={item.descripcion} onChange={(event) => onChange(row.idRecepcionOT, { descripcion: event.target.value })} /></td><td><input type="number" min="0.01" step="0.01" value={item.cantidad || ''} onChange={(event) => onChange(row.idRecepcionOT, { cantidad: Number(event.target.value) })} /></td><td><select value={item.unidad} onChange={(event) => onChange(row.idRecepcionOT, { unidad: event.target.value })}>{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}{!units.includes(item.unidad) && <option value={item.unidad}>{item.unidad}</option>}</select></td><td><button type="button" className="icon-button" onClick={() => onRemove(row)} title="Quitar"><X size={16} /></button></td></tr>;
+  })}</tbody></table></div>;
 }
 
 function useTablePager<T>(rows: T[]) {

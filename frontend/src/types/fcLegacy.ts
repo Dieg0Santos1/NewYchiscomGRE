@@ -72,6 +72,14 @@ export type FcLegacyReception = {
   estadoGuia: string;
   estadoFactura: string;
   serieProducto: string;
+  descripcion: string;
   direccion: string;
   idDistrito: number;
+};
+
+export type FcLegacyGuideItem = {
+  idRecepcionOT: number;
+  descripcion: string;
+  cantidad: number;
+  unidad: string;
 };

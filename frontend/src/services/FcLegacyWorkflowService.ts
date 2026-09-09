@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from './ApiClient';
-import type { FcLegacyCapabilities, FcLegacyCatalogs, FcLegacyClient, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
+import type { FcLegacyCapabilities, FcLegacyCatalogs, FcLegacyClient, FcLegacyGuideItem, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
 
 type WorkOrdersResponse = { ok: boolean; workOrders: FcLegacyWorkOrder[] };
 type ReceptionsResponse = { ok: boolean; receptions: FcLegacyReception[] };
@@ -64,6 +64,7 @@ export const fcLegacyWorkflowService = {
     formaPago?: string;
     idEmpleado?: number | null;
     idMotivoTraslado?: number | null;
+    detalles?: FcLegacyGuideItem[];
   }) {
     return apiPost<{ ok: boolean; internalGuide: { serieNumero?: string } }>(
       '/api/fc-legacy/internal-guides',

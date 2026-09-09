@@ -70,6 +70,7 @@ export type FcReceptionRow = {
   estadoGuia: string;
   estadoFactura: string;
   serieProducto: string;
+  descripcion: string;
   direccion: string;
   idDistrito: number;
 };
@@ -245,6 +246,12 @@ export class FcLegacyWorkflowService {
           r.EstadoGuia AS estadoGuia,
           r.EstadoFactura AS estadoFactura,
           dov.Serie AS serieProducto,
+          LTRIM(RTRIM(CONCAT(
+            ISNULL(ot.numero, ''),
+            CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' + ISNULL(dov.Serie, '') ELSE '' END,
+            CASE WHEN ISNULL(r.Del, '') <> '' THEN ' DEL ' + ISNULL(r.Del, '') ELSE '' END,
+            CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' + ISNULL(r.Al, '') ELSE '' END
+          ))) AS descripcion,
           c.Direccion AS direccion,
           c.IdDistrito AS idDistrito
         FROM dbo.tbRecepcionOT r
@@ -310,12 +317,25 @@ export class FcLegacyWorkflowService {
     formaPago?: string;
     idEmpleado?: number | null;
     idMotivoTraslado?: number | null;
+    detalles?: Array<{
+      idRecepcionOT: number;
+      descripcion: string;
+      cantidad: number;
+      unidad: string;
+    }>;
   }) {
     const pool = createYchiPool(this.config);
     await pool.connect();
     try {
       const request = new sql.Request(pool);
       const xml = `<ids>${input.idRecepciones.map((id) => `<id>${id}</id>`).join('')}</ids>`;
+      const detallesXml = `<detalles>${(input.detalles ?? []).map((item) => [
+        `<detalle idRecepcionOT="${escapeXml(String(item.idRecepcionOT))}">`,
+        `<descripcion>${escapeXml(item.descripcion)}</descripcion>`,
+        `<cantidad>${escapeXml(String(item.cantidad))}</cantidad>`,
+        `<unidad>${escapeXml(item.unidad)}</unidad>`,
+        '</detalle>'
+      ].join('')).join('')}</detalles>`;
       request.input('serie', sql.VarChar(3), input.serie);
       request.input('recepcionesXml', sql.Xml, xml);
       request.input('direccion', sql.VarChar(150), input.direccion);
@@ -325,6 +345,7 @@ export class FcLegacyWorkflowService {
       request.input('formaPago', sql.VarChar(80), input.formaPago ?? '');
       request.input('idEmpleado', sql.Int, input.idEmpleado ?? null);
       request.input('idMotivoTraslado', sql.Int, input.idMotivoTraslado ?? 0);
+      request.input('detallesXml', sql.Xml, detallesXml);
       const result = await request.execute('dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC');
       return findProcedureRow(result.recordsets, 'serieNumero');
     } finally { await pool.close(); }
@@ -439,8 +460,8 @@ async function listLegacyTransferReasons(pool: sql.ConnectionPool, warnings: str
     try {
       const result = await new sql.Request(pool).query<FcLegacyMotivoRow>(query);
       if (result.recordset.length > 0) return result.recordset;
-    } catch (error) {
-      warnings.push(catalogWarning('motivos de traslado legacy', error));
+    } catch {
+      continue;
     }
   }
 
@@ -456,4 +477,13 @@ function defaultLegacyTransferReasons(): FcLegacyMotivoRow[] {
 function catalogWarning(source: string, error: unknown) {
   const message = error instanceof Error ? error.message : 'sin detalle';
   return `No se pudo cargar ${source} desde YCHIDB3: ${message}`;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }

@@ -4,8 +4,8 @@
   Objetivo:
   - Dejar el flujo listo para prueba desde el portal sin depender de una
     bandera de entorno.
-  - Permitir que la guia interna use vendedor y motivo seleccionados desde
-    catalogos del backend.
+  - Permitir que la guia interna use vendedor, motivo, cantidad y U.M.
+    seleccionados desde el portal.
 
   Este script no inserta, actualiza ni elimina datos operativos. Solo cambia
   la definicion del procedimiento wrapper.
@@ -28,16 +28,36 @@ ALTER PROCEDURE dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC
   @observaciones varchar(50) = '',
   @formaPago varchar(80) = '',
   @idEmpleado int = NULL,
-  @idMotivoTraslado int = 0
+  @idMotivoTraslado int = 0,
+  @detallesXml xml = NULL
 AS
 BEGIN
   SET NOCOUNT ON;
   SET XACT_ABORT ON;
 
   DECLARE @ids TABLE (idRecepcionOT int NOT NULL PRIMARY KEY);
+  DECLARE @detalles TABLE (
+    idRecepcionOT int NOT NULL PRIMARY KEY,
+    descripcion varchar(250) NULL,
+    cantidad decimal(18,2) NULL,
+    unidad varchar(50) NULL
+  );
+
   INSERT @ids (idRecepcionOT)
   SELECT n.value('(text())[1]', 'int')
   FROM @recepcionesXml.nodes('/ids/id') AS x(n);
+
+  IF @detallesXml IS NOT NULL
+  BEGIN
+    INSERT @detalles (idRecepcionOT, descripcion, cantidad, unidad)
+    SELECT
+      n.value('@idRecepcionOT', 'int'),
+      n.value('(descripcion/text())[1]', 'varchar(250)'),
+      n.value('(cantidad/text())[1]', 'decimal(18,2)'),
+      n.value('(unidad/text())[1]', 'varchar(50)')
+    FROM @detallesXml.nodes('/detalles/detalle') AS x(n)
+    WHERE n.value('@idRecepcionOT', 'int') > 0;
+  END
 
   DECLARE @cantidadIds int = (SELECT COUNT(*) FROM @ids),
           @cantidadValidas int,
@@ -62,6 +82,16 @@ BEGIN
   IF @cantidadIds = 0
   BEGIN
     RAISERROR('Debe incluir al menos una recepcion.', 16, 1);
+    RETURN;
+  END
+  IF EXISTS (SELECT 1 FROM @detalles WHERE cantidad <= 0 OR NULLIF(LTRIM(RTRIM(unidad)), '') IS NULL)
+  BEGIN
+    RAISERROR('Cada detalle debe tener cantidad mayor que cero y unidad.', 16, 1);
+    RETURN;
+  END
+  IF EXISTS (SELECT 1 FROM @detalles d WHERE NOT EXISTS (SELECT 1 FROM @ids i WHERE i.idRecepcionOT = d.idRecepcionOT))
+  BEGIN
+    RAISERROR('El detalle enviado no corresponde a las recepciones seleccionadas.', 16, 1);
     RETURN;
   END
   IF NULLIF(LTRIM(RTRIM(@direccion)), '') IS NULL
@@ -146,10 +176,14 @@ BEGIN
         @origen = 'Y';
 
     DECLARE recepciones CURSOR LOCAL FAST_FORWARD FOR
-      SELECT r.idRecepcionOT, r.Cantidad, u.Valor
+      SELECT
+        r.idRecepcionOT,
+        COALESCE(d.cantidad, r.Cantidad) AS cantidad,
+        COALESCE(NULLIF(LTRIM(RTRIM(d.unidad)), ''), u.Valor) AS unidad
       FROM @ids i
       INNER JOIN dbo.tbRecepcionOT r ON r.idRecepcionOT = i.idRecepcionOT
       INNER JOIN dbo.tbUnidades u ON u.idUnidad = r.IDUNIDAD
+      LEFT JOIN @detalles d ON d.idRecepcionOT = r.idRecepcionOT
       ORDER BY r.idRecepcionOT;
 
     OPEN recepciones;
