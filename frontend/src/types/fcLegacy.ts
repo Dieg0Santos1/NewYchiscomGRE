@@ -67,6 +67,7 @@ export type FcLegacyReception = {
   numeroOt: string;
   idOrdenVenta: number;
   numeroOv: string;
+  numeroOvLegacy: string;
   idClieProv: number;
   cliente: string;
   cantidad: number;
@@ -78,6 +79,9 @@ export type FcLegacyReception = {
   estadoGuia: string;
   estadoFactura: string;
   serieProducto: string;
+  formato: string;
+  medida: string;
+  numCopias: number;
   descripcion: string;
   direccion: string;
   idDistrito: number;

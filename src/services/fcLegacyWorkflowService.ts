@@ -61,6 +61,7 @@ export type FcReceptionRow = {
   numeroOt: string;
   idOrdenVenta: number;
   numeroOv: string;
+  numeroOvLegacy: string;
   idClieProv: number;
   cliente: string;
   cantidad: number;
@@ -72,6 +73,9 @@ export type FcReceptionRow = {
   estadoGuia: string;
   estadoFactura: string;
   serieProducto: string;
+  formato: string;
+  medida: string;
+  numCopias: number;
   descripcion: string;
   direccion: string;
   idDistrito: number;
@@ -270,6 +274,7 @@ export class FcLegacyWorkflowService {
           ot.numero AS numeroOt,
           dov.idOrdenVenta,
           ov.Numero AS numeroOv,
+          LTRIM(RTRIM(ISNULL(ov.Numero, '') + '-' + CONVERT(varchar(15), ISNULL(dov.item, 0)))) AS numeroOvLegacy,
           c.idClieProv,
           c.Nombre AS cliente,
           CAST(r.cantidad AS decimal(18,2)) AS cantidad,
@@ -281,6 +286,9 @@ export class FcLegacyWorkflowService {
           r.EstadoGuia AS estadoGuia,
           r.EstadoFactura AS estadoFactura,
           dov.Serie AS serieProducto,
+          ISNULL(legacyDetalle.formato, '') AS formato,
+          ISNULL(legacyDetalle.medida, '') AS medida,
+          ISNULL(dsp.cantidadCopias, 0) AS numCopias,
           COALESCE(NULLIF(legacyDetalle.descripcion, ''), LTRIM(RTRIM(
             ISNULL(ot.numero, '') COLLATE DATABASE_DEFAULT +
             CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' COLLATE DATABASE_DEFAULT + ISNULL(dov.Serie, '') COLLATE DATABASE_DEFAULT ELSE '' END +
@@ -302,8 +310,8 @@ export class FcLegacyWorkflowService {
         LEFT JOIN dbo.tbDetSoliProf_detalle dspDetalle ON dspDetalle.idDetSoliProf = dsp.idDetSoliProf
         LEFT JOIN dbo.tbFormatos formato ON formato.idFormatos = ov.IdFormato
         OUTER APPLY (
-          SELECT LTRIM(RTRIM(
-            ISNULL(
+          SELECT
+            LTRIM(RTRIM(ISNULL(
               CASE
                 WHEN dsp.idFormato = 34 THEN dspDetalle.Formato
                 WHEN dsp.idFormato < 34 THEN formato.nombre
@@ -311,24 +319,48 @@ export class FcLegacyWorkflowService {
                 ELSE dspDetalle.Formato
               END,
               ''
-            ) COLLATE DATABASE_DEFAULT +
-            ' ' COLLATE DATABASE_DEFAULT +
-            ISNULL(
+            ))) AS formato,
+            LTRIM(RTRIM(ISNULL(
               CASE
                 WHEN LEFT(ISNULL(dsp.observaciones, ''), 3) = 'MCM'
-                  THEN ISNULL(equivMed.nombre, '') COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT + CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+                  THEN ISNULL(equivMed.nombre, '') COLLATE DATABASE_DEFAULT
                 ELSE
                   CAST(medida.enteroAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
                   CAST(medida.numeradorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
                   CAST(medida.denominadorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
                   CAST(medida.enteroLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
                   CAST(medida.numeradorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
-                  CAST(medida.denominadorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
-                  CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+                  CAST(medida.denominadorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT
               END,
               ''
-            ) COLLATE DATABASE_DEFAULT
-          )) AS descripcion
+            ))) AS medida,
+            LTRIM(RTRIM(
+              ISNULL(
+                CASE
+                  WHEN dsp.idFormato = 34 THEN dspDetalle.Formato
+                  WHEN dsp.idFormato < 34 THEN formato.nombre
+                  WHEN dsp.idFormato > 34 AND dsp.idFormato < 100 THEN formato.nombre
+                  ELSE dspDetalle.Formato
+                END,
+                ''
+              ) COLLATE DATABASE_DEFAULT +
+              ' ' COLLATE DATABASE_DEFAULT +
+              ISNULL(
+                CASE
+                  WHEN LEFT(ISNULL(dsp.observaciones, ''), 3) = 'MCM'
+                    THEN ISNULL(equivMed.nombre, '') COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT + CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+                  ELSE
+                    CAST(medida.enteroAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
+                    CAST(medida.numeradorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
+                    CAST(medida.denominadorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
+                    CAST(medida.enteroLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
+                    CAST(medida.numeradorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
+                    CAST(medida.denominadorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
+                    CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+                END,
+                ''
+              ) COLLATE DATABASE_DEFAULT
+            )) AS descripcion
         ) legacyDetalle
         WHERE (@query = '%%'
           OR ot.numero LIKE @query
@@ -364,6 +396,7 @@ export class FcLegacyWorkflowService {
           ot.numero AS numeroOt,
           dov.idOrdenVenta,
           ov.Numero AS numeroOv,
+          LTRIM(RTRIM(ISNULL(ov.Numero, '') + '-' + CONVERT(varchar(15), ISNULL(dov.item, 0)))) AS numeroOvLegacy,
           c.idClieProv,
           c.Nombre AS cliente,
           CAST(r.cantidad AS decimal(18,2)) AS cantidad,
@@ -375,6 +408,9 @@ export class FcLegacyWorkflowService {
           r.EstadoGuia AS estadoGuia,
           r.EstadoFactura AS estadoFactura,
           dov.Serie AS serieProducto,
+          '' AS formato,
+          '' AS medida,
+          0 AS numCopias,
           LTRIM(RTRIM(
             ISNULL(ot.numero, '') COLLATE DATABASE_DEFAULT +
             CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' COLLATE DATABASE_DEFAULT + ISNULL(dov.Serie, '') COLLATE DATABASE_DEFAULT ELSE '' END +
