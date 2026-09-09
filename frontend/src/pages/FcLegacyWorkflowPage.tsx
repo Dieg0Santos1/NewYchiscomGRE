@@ -321,7 +321,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       {picker === 'clients' && <LegacyPickerModal title="Seleccionar cliente" query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={clients.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por cliente, RUC, OT u OV"><ClientTable rows={clients} onSelect={chooseClient} /></LegacyPickerModal>}
       {picker === 'work-orders' && <LegacyPickerModal title={`Seleccionar OT / OV${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={workOrders.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por OT u OV"><WorkOrderTable rows={workOrders} onSelect={chooseOt} /></LegacyPickerModal>}
       {picker === 'pending' && <LegacyPickerModal title="Pre-guias pendientes de aceptacion" query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={pending.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o cliente"><ReceptionTable rows={pending} actionLabel="Aceptar" disabled={!writeEnabled || loading} onAction={acceptPreGuide} /></LegacyPickerModal>}
-      {picker === 'ready' && <LegacyPickerModal title={`OT recepcionadas${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o descripcion" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReadyReceptionPicker rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
+      {picker === 'ready' && <LegacyPickerModal title={`OT recepcionadas${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o descripcion" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReadyReceptionOvPicker rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
     </section>
   );
 }
@@ -376,54 +376,127 @@ function ReceptionTable({ rows, selectedIds = [], onToggle, actionLabel, onActio
   return <><table className="legacy-table"><thead><tr>{onToggle && <th></th>}<th>Recepcion</th><th>OT</th><th>OV</th><th>Cliente</th><th>Cantidad</th><th>Rango</th><th>Estado</th>{onAction && <th></th>}</tr></thead><tbody>{rows.length === 0 ? <tr><td className="empty-row" colSpan={onToggle || onAction ? 9 : 7}>Sin resultados</td></tr> : pager.visibleRows.map((row) => <tr key={row.idRecepcionOT} className={selectedIds.includes(row.idRecepcionOT) ? 'legacy-row-selected' : ''}>{onToggle && <td><input type="checkbox" checked={selectedIds.includes(row.idRecepcionOT)} onChange={() => onToggle(row)} /></td>}<td>{row.idRecepcionOT}</td><td>{row.numeroOt}</td><td>{row.numeroOv || row.idOrdenVenta}</td><td>{row.cliente}</td><td>{row.cantidad} {row.unidad}</td><td>{row.del} - {row.al}</td><td>{row.estadoOt}/{row.estadoGuia}</td>{onAction && <td><button type="button" className="select-row-button" disabled={disabled} onClick={() => onAction(row)}><CheckCircle2 size={15} /> {actionLabel}</button></td>}</tr>)}</tbody></table><TablePager {...pager} /></>;
 }
 
-function ReadyReceptionPicker({ rows, selectedIds, onToggle }: { rows: FcLegacyReception[]; selectedIds: number[]; onToggle: (row: FcLegacyReception) => void }) {
+type ReadyReceptionOvGroup = {
+  key: string;
+  ovNumero: string;
+  formato: string;
+  medida: string;
+  numCopias: number;
+  estadoGuia: string;
+  rows: FcLegacyReception[];
+};
+
+function ReadyReceptionOvPicker({ rows, selectedIds, onToggle }: { rows: FcLegacyReception[]; selectedIds: number[]; onToggle: (row: FcLegacyReception) => void }) {
   const [sortDirection, setSortDirection] = useState<'desc' | 'asc'>('desc');
-  const [selectedOvKey, setSelectedOvKey] = useState('');
-  const groups = useMemo(() => {
-    const map = new Map<string, {
-      key: string;
-      ovNumero: string;
-      formato: string;
-      medida: string;
-      numCopias: number;
-      estadoGuia: string;
-      rows: FcLegacyReception[];
-    }>();
-    for (const row of rows) {
-      const key = `${row.idOrdenVenta}-${row.numeroOvLegacy || row.numeroOv || row.idOrdenVenta}`;
-      const current = map.get(key);
-      if (current) {
-        current.rows.push(row);
-        current.numCopias = Math.max(current.numCopias, Number(row.numCopias || 0));
-      } else {
-        map.set(key, {
-          key,
-          ovNumero: row.numeroOvLegacy || row.numeroOv || String(row.idOrdenVenta),
-          formato: row.formato || row.descripcion?.split(' X ')[0] || '-',
-          medida: row.medida || '-',
-          numCopias: Number(row.numCopias || 0),
-          estadoGuia: row.estadoGuia || '-',
-          rows: [row]
-        });
-      }
-    }
-    return Array.from(map.values()).sort((left, right) => {
-      const diff = legacyOvSortValue(left.ovNumero) - legacyOvSortValue(right.ovNumero);
-      return sortDirection === 'asc' ? diff : -diff;
-    });
-  }, [rows, sortDirection]);
+  const [activeGroup, setActiveGroup] = useState<ReadyReceptionOvGroup | null>(null);
+  const groups = useMemo(() => groupReceptionsByOv(rows, sortDirection), [rows, sortDirection]);
+  const pager = useTablePager(groups);
 
   useEffect(() => {
-    if (groups.length === 0) {
-      setSelectedOvKey('');
-      return;
+    if (activeGroup && !groups.some((group) => group.key === activeGroup.key)) setActiveGroup(null);
+  }, [activeGroup, groups]);
+
+  return (
+    <div className="legacy-ready-picker">
+      <section>
+        <h3>Ordenes de Venta Pendientes</h3>
+        <table className="legacy-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>
+                <button type="button" className="legacy-sort-button" onClick={() => setSortDirection((current) => current === 'desc' ? 'asc' : 'desc')}>
+                  OV_NUMERO {sortDirection === 'desc' ? '↓' : '↑'}
+                </button>
+              </th>
+              <th>FORMATO</th>
+              <th>MEDIDA</th>
+              <th>NUMCOPIAS</th>
+              <th>ESTADOGUIA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.length === 0 ? (
+              <tr><td className="empty-row" colSpan={6}>Sin resultados</td></tr>
+            ) : pager.visibleRows.map((group) => (
+              <tr key={group.key} onClick={() => setActiveGroup(group)}>
+                <td>▶</td>
+                <td>{group.ovNumero}</td>
+                <td>{group.formato || '-'}</td>
+                <td>{group.medida || '-'}</td>
+                <td>{group.numCopias || '-'}</td>
+                <td>{group.estadoGuia}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <TablePager {...pager} />
+      </section>
+
+      {activeGroup && (
+        <div className="modal-backdrop nested-modal-backdrop" role="dialog" aria-modal="true" aria-label={`OT de ${activeGroup.ovNumero}`} onMouseDown={(event) => event.target === event.currentTarget && setActiveGroup(null)}>
+          <section className="legacy-ot-picker-modal">
+            <header className="legacy-picker-header">
+              <div>
+                <h2>OT pendientes - OV {activeGroup.ovNumero}</h2>
+                <span>{activeGroup.rows.length} resultado(s)</span>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setActiveGroup(null)} aria-label="Cerrar"><X size={19} /></button>
+            </header>
+            <div className="legacy-ov-summary">
+              <span>{activeGroup.formato || 'Sin formato'}</span>
+              <span>{activeGroup.medida || 'Sin medida'}</span>
+              <span>{activeGroup.numCopias ? `${activeGroup.numCopias} copia(s)` : 'Sin copias'}</span>
+            </div>
+            <table className="legacy-table">
+              <thead>
+                <tr><th></th><th>NUMERO_OT</th><th>PRODUCTO</th><th>CANTIDAD</th><th>SERIE</th></tr>
+              </thead>
+              <tbody>
+                {activeGroup.rows.map((row) => (
+                  <tr key={row.idRecepcionOT} className={selectedIds.includes(row.idRecepcionOT) ? 'legacy-row-selected' : ''} onClick={() => { onToggle(row); setActiveGroup(null); }}>
+                    <td><input type="checkbox" checked={selectedIds.includes(row.idRecepcionOT)} onChange={() => { onToggle(row); setActiveGroup(null); }} onClick={(event) => event.stopPropagation()} /></td>
+                    <td>{row.numeroOt}</td>
+                    <td>{row.descripcion || row.formato || '-'}</td>
+                    <td>{Number(row.cantidad || 0).toFixed(2)}</td>
+                    <td>{row.serieProducto || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function groupReceptionsByOv(rows: FcLegacyReception[], sortDirection: 'desc' | 'asc') {
+  const map = new Map<string, ReadyReceptionOvGroup>();
+  for (const row of rows) {
+    const key = `${row.idOrdenVenta}-${row.numeroOvLegacy || row.numeroOv || row.idOrdenVenta}`;
+    const current = map.get(key);
+    if (current) {
+      current.rows.push(row);
+      current.numCopias = Math.max(current.numCopias, Number(row.numCopias || 0));
+      if (!current.formato && row.formato) current.formato = row.formato;
+      if (!current.medida && row.medida) current.medida = row.medida;
+    } else {
+      map.set(key, {
+        key,
+        ovNumero: row.numeroOvLegacy || row.numeroOv || String(row.idOrdenVenta),
+        formato: row.formato || '',
+        medida: row.medida || '',
+        numCopias: Number(row.numCopias || 0),
+        estadoGuia: row.estadoGuia || '-',
+        rows: [row]
+      });
     }
-    if (!groups.some((group) => group.key === selectedOvKey)) setSelectedOvKey(groups[0].key);
-  }, [groups, selectedOvKey]);
-
-  const selectedGroup = groups.find((group) => group.key === selectedOvKey) ?? groups[0];
-
-  return <div className="legacy-ready-picker"><section><h3>Ordenes de Venta Pendientes</h3><table className="legacy-table"><thead><tr><th></th><th><button type="button" className="legacy-sort-button" onClick={() => setSortDirection((current) => current === 'desc' ? 'asc' : 'desc')}>OV_NUMERO {sortDirection === 'desc' ? '↓' : '↑'}</button></th><th>FORMATO</th><th>MEDIDA</th><th>NUMCOPIAS</th><th>ESTADOGUIA</th></tr></thead><tbody>{groups.length === 0 ? <tr><td className="empty-row" colSpan={6}>Sin resultados</td></tr> : groups.map((group) => <tr key={group.key} className={group.key === selectedGroup?.key ? 'legacy-row-selected' : ''} onClick={() => setSelectedOvKey(group.key)}><td>▶</td><td>{group.ovNumero}</td><td>{group.formato || '-'}</td><td>{group.medida || '-'}</td><td>{group.numCopias || '-'}</td><td>{group.estadoGuia}</td></tr>)}</tbody></table></section><section><h3>Ordenes de Trabajo Pendientes</h3><table className="legacy-table"><thead><tr><th></th><th>NUMERO_OT</th><th>PRODUCTO</th><th>CANTIDAD</th><th>SERIE</th></tr></thead><tbody>{!selectedGroup ? <tr><td className="empty-row" colSpan={5}>Selecciona una OV para ver sus OT.</td></tr> : selectedGroup.rows.map((row) => <tr key={row.idRecepcionOT} className={selectedIds.includes(row.idRecepcionOT) ? 'legacy-row-selected' : ''} onClick={() => onToggle(row)}><td><input type="checkbox" checked={selectedIds.includes(row.idRecepcionOT)} onChange={() => onToggle(row)} onClick={(event) => event.stopPropagation()} /></td><td>{row.numeroOt}</td><td>{row.descripcion || row.formato || '-'}</td><td>{Number(row.cantidad || 0).toFixed(2)}</td><td>{row.serieProducto || '-'}</td></tr>)}</tbody></table></section></div>;
+  }
+  return Array.from(map.values()).sort((left, right) => {
+    const diff = legacyOvSortValue(left.ovNumero) - legacyOvSortValue(right.ovNumero);
+    return sortDirection === 'asc' ? diff : -diff;
+  });
 }
 
 function SelectedReceptionTable({

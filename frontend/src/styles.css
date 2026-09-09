@@ -2386,6 +2386,36 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   padding: 0;
 }
 
+.nested-modal-backdrop {
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 60;
+}
+
+.legacy-ot-picker-modal {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  margin: auto;
+  max-height: 72vh;
+  overflow: auto;
+  width: min(920px, calc(100vw - 72px));
+}
+
+.legacy-ov-summary {
+  color: #475569;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px;
+}
+
+.legacy-ov-summary span {
+  background: #eef5ff;
+  border: 1px solid #c9d9ef;
+  border-radius: 999px;
+  padding: 5px 10px;
+}
+
 .legacy-next-action {
   align-items: center;
   background: #ecfdf5;

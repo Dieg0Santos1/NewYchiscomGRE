@@ -695,7 +695,11 @@ async function listLegacyTransferReasons(pool: sql.ConnectionPool, warnings: str
 }
 
 function defaultLegacyTransferReasons(): FcLegacyMotivoRow[] {
-  return [{ idMotivoTraslado: 0, nombre: 'Segun guia interna' }];
+  return [
+    { idMotivoTraslado: 0, nombre: 'Segun guia interna' },
+    { idMotivoTraslado: 17, nombre: 'Traslado' },
+    { idMotivoTraslado: 18, nombre: 'Transformacion' }
+  ];
 }
 
 function catalogWarning(source: string, error: unknown) {
