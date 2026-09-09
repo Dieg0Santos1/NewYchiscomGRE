@@ -23,9 +23,14 @@ export const fcLegacyWorkflowService = {
     };
   },
 
-  async searchClients(query: string) {
-    const result = await apiGet<ClientsResponse>(`/api/fc-legacy/clients?q=${encodeURIComponent(query)}`);
+  async searchClients(query: string, purpose: 'pre-guide' | 'internal-guide' = 'pre-guide') {
+    const params = new URLSearchParams({ q: query, purpose });
+    const result = await apiGet<ClientsResponse>(`/api/fc-legacy/clients?${params.toString()}`);
     return result.clients;
+  },
+
+  async nextInternalGuide(serie: '001' | '003') {
+    return apiGet<{ ok: boolean; serie: '001' | '003'; numero: string; serieNumero: string }>(`/api/fc-legacy/internal-guides/next?serie=${serie}`);
   },
 
   async searchWorkOrders(query: string, idClieProv?: number) {

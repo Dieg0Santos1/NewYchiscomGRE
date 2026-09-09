@@ -2258,9 +2258,15 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 .legacy-content .legacy-guide-form {
-  grid-template-columns: 140px minmax(240px, 1fr) minmax(160px, .45fr);
+  align-items: end;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   margin: 0;
   padding: 18px;
+}
+
+.legacy-content .legacy-guide-form label {
+  grid-column: span 3;
+  min-width: 0;
 }
 
 .legacy-lookup-field > div {
@@ -2317,7 +2323,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 .legacy-wide-field {
-  grid-column: span 2;
+  grid-column: span 9 !important;
+}
+
+.legacy-short-field {
+  grid-column: span 3 !important;
+}
+
+.legacy-content .legacy-guide-form .primary-button {
+  grid-column: span 3;
+  min-height: 45px;
 }
 
 .legacy-selected-table {

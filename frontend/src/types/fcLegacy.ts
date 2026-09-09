@@ -3,6 +3,12 @@ export type FcLegacyCapabilities = {
   confirmationRequired: boolean;
 };
 
+export type FcLegacyNextInternalGuide = {
+  serie: '001' | '003';
+  numero: string;
+  serieNumero: string;
+};
+
 export type FcLegacyFormaPago = {
   id: string;
   nombre: string;

@@ -53,6 +53,8 @@ export type FcLegacyCatalogs = {
   warnings: string[];
 };
 
+export type FcLegacyClientPurpose = 'pre-guide' | 'internal-guide';
+
 export type FcReceptionRow = {
   idRecepcionOT: number;
   idOrdenTrabajo: number;
@@ -106,12 +108,38 @@ export class FcLegacyWorkflowService {
     }
   }
 
-  async searchClients(query: string): Promise<FcLegacyClientRow[]> {
+  async getNextInternalGuide(serie: '001' | '003') {
+    const pool = createYchiPool(this.config);
+    await pool.connect();
+    try {
+      const request = new sql.Request(pool);
+      request.input('serie', sql.VarChar(3), serie);
+      request.input('idTipoDocu', sql.Int, serie === '003' ? 39 : 8);
+      const result = await request.query<{ numero: string | null }>(`
+        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SELECT TOP (1) numero
+        FROM dbo.tbTipoDocu
+        WHERE idTipoDocu = @idTipoDocu
+          AND serie = @serie
+          AND ISNUMERIC(numero) = 1;
+      `);
+      const latest = result.recordset[0];
+      const nextNumber = Number(latest?.numero ?? 0) + 1;
+      const numero = String(nextNumber);
+      return { serie, numero, serieNumero: `${serie}-${numero}` };
+    } finally {
+      await pool.close();
+    }
+  }
+
+  async searchClients(query: string, purpose: FcLegacyClientPurpose = 'pre-guide'): Promise<FcLegacyClientRow[]> {
+    if (purpose === 'internal-guide') return this.searchInternalGuideClients(query);
     const pool = createYchiPool(this.config);
     await pool.connect();
     try {
       const request = new sql.Request(pool);
       request.input('query', sql.VarChar(100), `%${query.trim()}%`);
+      request.input('queryBase', sql.VarChar(100), legacyLike(query));
       const result = await request.query<FcLegacyClientRow>(`
         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
         WITH recibidas AS (
@@ -140,7 +168,9 @@ export class FcLegacyWorkflowService {
             OR c.Nombre LIKE @query
             OR ISNULL(c.RUC, '') LIKE @query
             OR ot.numero LIKE @query
-            OR ov.Numero LIKE @query)
+            OR ov.Numero LIKE @query
+            OR ov.Numero LIKE @queryBase
+            OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @queryBase)
             AND ISNULL(ot.Estado, '') <> 'Z'
             AND ISNULL(ot.EstGuia, 'N') IN ('N', 'M')
             AND dov.Cantidad - ISNULL(r.cantidadAceptada, 0) > 0
@@ -169,6 +199,7 @@ export class FcLegacyWorkflowService {
     try {
       const request = new sql.Request(pool);
       request.input('query', sql.VarChar(100), `%${query.trim()}%`);
+      request.input('queryBase', sql.VarChar(100), legacyLike(query));
       request.input('idClieProv', sql.Int, idClieProv ?? null);
       const result = await request.query<FcPreGuideRow>(`
         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
@@ -206,7 +237,9 @@ export class FcLegacyWorkflowService {
           OR ot.numero LIKE @query
           OR c.Nombre LIKE @query
           OR ov.Numero LIKE @query
-          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @query)
+          OR ov.Numero LIKE @queryBase
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @query
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @queryBase)
           AND ISNULL(ot.Estado, '') <> 'Z'
           AND ISNULL(ot.EstGuia, 'N') IN ('N', 'M')
           AND (@idClieProv IS NULL OR c.idClieProv = @idClieProv)
@@ -225,9 +258,11 @@ export class FcLegacyWorkflowService {
     try {
       const request = new sql.Request(pool);
       request.input('query', sql.VarChar(100), `%${query.trim()}%`);
+      request.input('queryBase', sql.VarChar(100), legacyLike(query));
       request.input('state', sql.VarChar(10), state);
       request.input('idClieProv', sql.Int, idClieProv ?? null);
-      const result = await request.query<FcReceptionRow>(`
+      try {
+        const result = await request.query<FcReceptionRow>(`
         SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
         SELECT TOP (200)
           r.idRecepcionOT,
@@ -246,12 +281,106 @@ export class FcLegacyWorkflowService {
           r.EstadoGuia AS estadoGuia,
           r.EstadoFactura AS estadoFactura,
           dov.Serie AS serieProducto,
-          LTRIM(RTRIM(CONCAT(
-            ISNULL(ot.numero, ''),
-            CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' + ISNULL(dov.Serie, '') ELSE '' END,
-            CASE WHEN ISNULL(r.Del, '') <> '' THEN ' DEL ' + ISNULL(r.Del, '') ELSE '' END,
-            CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' + ISNULL(r.Al, '') ELSE '' END
+          COALESCE(NULLIF(legacyDetalle.descripcion, ''), LTRIM(RTRIM(
+            ISNULL(ot.numero, '') COLLATE DATABASE_DEFAULT +
+            CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' COLLATE DATABASE_DEFAULT + ISNULL(dov.Serie, '') COLLATE DATABASE_DEFAULT ELSE '' END +
+            CASE WHEN ISNULL(r.Del, '') <> '' THEN ' DEL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Del, '') COLLATE DATABASE_DEFAULT ELSE '' END +
+            CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Al, '') COLLATE DATABASE_DEFAULT ELSE '' END
           ))) AS descripcion,
+          c.Direccion AS direccion,
+          c.IdDistrito AS idDistrito
+        FROM dbo.tbRecepcionOT r
+        INNER JOIN dbo.tbOrdenTrabajo ot ON ot.idOrdenTrabajo = r.idOT
+        INNER JOIN dbo.tbDetOrdenVenta dov ON dov.idDetOrdenVenta = ot.idDetOrdenVenta
+        INNER JOIN dbo.tbOrdenVenta ov ON ov.idOrdenVenta = dov.idOrdenVenta
+        INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
+        INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
+        INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+        INNER JOIN dbo.tbUnidades u ON u.idUnidad = r.IDUNIDAD
+        INNER JOIN dbo.tbMedidas medida ON medida.idMedida = ov.IdMedida
+        LEFT JOIN dbo.tbEquivMed equivMed ON equivMed.idMedida = medida.idMedida
+        LEFT JOIN dbo.tbDetSoliProf_detalle dspDetalle ON dspDetalle.idDetSoliProf = dsp.idDetSoliProf
+        LEFT JOIN dbo.tbFormatos formato ON formato.idFormatos = ov.IdFormato
+        OUTER APPLY (
+          SELECT LTRIM(RTRIM(
+            ISNULL(
+              CASE
+                WHEN dsp.idFormato = 34 THEN dspDetalle.Formato
+                WHEN dsp.idFormato < 34 THEN formato.nombre
+                WHEN dsp.idFormato > 34 AND dsp.idFormato < 100 THEN formato.nombre
+                ELSE dspDetalle.Formato
+              END,
+              ''
+            ) COLLATE DATABASE_DEFAULT +
+            ' ' COLLATE DATABASE_DEFAULT +
+            ISNULL(
+              CASE
+                WHEN LEFT(ISNULL(dsp.observaciones, ''), 3) = 'MCM'
+                  THEN ISNULL(equivMed.nombre, '') COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT + CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+                ELSE
+                  CAST(medida.enteroAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
+                  CAST(medida.numeradorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
+                  CAST(medida.denominadorAncho AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
+                  CAST(medida.enteroLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' ' COLLATE DATABASE_DEFAULT +
+                  CAST(medida.numeradorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + '/' COLLATE DATABASE_DEFAULT +
+                  CAST(medida.denominadorLargo AS varchar(20)) COLLATE DATABASE_DEFAULT + ' X ' COLLATE DATABASE_DEFAULT +
+                  CAST(dsp.cantidadCopias AS varchar(20)) COLLATE DATABASE_DEFAULT
+              END,
+              ''
+            ) COLLATE DATABASE_DEFAULT
+          )) AS descripcion
+        ) legacyDetalle
+        WHERE (@query = '%%'
+          OR ot.numero LIKE @query
+          OR c.Nombre LIKE @query
+          OR CONVERT(varchar(20), r.idRecepcionOT) LIKE @query
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @query
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @queryBase
+          OR ov.Numero LIKE @query
+          OR ov.Numero LIKE @queryBase
+          OR legacyDetalle.descripcion LIKE @query
+          OR legacyDetalle.descripcion LIKE @queryBase)
+          AND (@idClieProv IS NULL OR c.idClieProv = @idClieProv)
+          AND (
+            @state = 'all'
+            OR (@state = 'pending' AND r.EstadoOT = 'I')
+            OR (@state = 'ready' AND r.EstadoOT = 'C' AND r.EstadoGuia = 'N')
+          )
+        ORDER BY r.FechaRegistro DESC, r.idRecepcionOT DESC;
+      `);
+        return result.recordset;
+      } catch (error) {
+        if (!isLegacyMetadataPermissionError(error)) throw error;
+        const fallbackRequest = new sql.Request(pool);
+        fallbackRequest.input('query', sql.VarChar(100), `%${query.trim()}%`);
+        fallbackRequest.input('queryBase', sql.VarChar(100), legacyLike(query));
+        fallbackRequest.input('state', sql.VarChar(10), state);
+        fallbackRequest.input('idClieProv', sql.Int, idClieProv ?? null);
+        const fallback = await fallbackRequest.query<FcReceptionRow>(`
+        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SELECT TOP (200)
+          r.idRecepcionOT,
+          ot.idOrdenTrabajo,
+          ot.numero AS numeroOt,
+          dov.idOrdenVenta,
+          ov.Numero AS numeroOv,
+          c.idClieProv,
+          c.Nombre AS cliente,
+          CAST(r.cantidad AS decimal(18,2)) AS cantidad,
+          u.Valor AS unidad,
+          r.Del AS del,
+          r.Al AS al,
+          r.FechaRegistro,
+          r.EstadoOT AS estadoOt,
+          r.EstadoGuia AS estadoGuia,
+          r.EstadoFactura AS estadoFactura,
+          dov.Serie AS serieProducto,
+          LTRIM(RTRIM(
+            ISNULL(ot.numero, '') COLLATE DATABASE_DEFAULT +
+            CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' COLLATE DATABASE_DEFAULT + ISNULL(dov.Serie, '') COLLATE DATABASE_DEFAULT ELSE '' END +
+            CASE WHEN ISNULL(r.Del, '') <> '' THEN ' DEL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Del, '') COLLATE DATABASE_DEFAULT ELSE '' END +
+            CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Al, '') COLLATE DATABASE_DEFAULT ELSE '' END
+          )) AS descripcion,
           c.Direccion AS direccion,
           c.IdDistrito AS idDistrito
         FROM dbo.tbRecepcionOT r
@@ -267,7 +396,9 @@ export class FcLegacyWorkflowService {
           OR c.Nombre LIKE @query
           OR CONVERT(varchar(20), r.idRecepcionOT) LIKE @query
           OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @query
-          OR ov.Numero LIKE @query)
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @queryBase
+          OR ov.Numero LIKE @query
+          OR ov.Numero LIKE @queryBase)
           AND (@idClieProv IS NULL OR c.idClieProv = @idClieProv)
           AND (
             @state = 'all'
@@ -276,7 +407,8 @@ export class FcLegacyWorkflowService {
           )
         ORDER BY r.FechaRegistro DESC, r.idRecepcionOT DESC;
       `);
-      return result.recordset;
+        return fallback.recordset;
+      }
     } finally {
       await pool.close();
     }
@@ -350,6 +482,49 @@ export class FcLegacyWorkflowService {
       return findProcedureRow(result.recordsets, 'serieNumero');
     } finally { await pool.close(); }
   }
+
+  private async searchInternalGuideClients(query: string): Promise<FcLegacyClientRow[]> {
+    const pool = createYchiPool(this.config);
+    await pool.connect();
+    try {
+      const request = new sql.Request(pool);
+      request.input('query', sql.VarChar(100), `%${query.trim()}%`);
+      request.input('queryBase', sql.VarChar(100), legacyLike(query));
+      const result = await request.query<FcLegacyClientRow>(`
+        SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+        SELECT TOP (100)
+          c.idClieProv,
+          c.Nombre AS cliente,
+          ISNULL(c.RUC, '') AS ruc,
+          ISNULL(c.Direccion, '') AS direccion,
+          ISNULL(c.IdDistrito, 0) AS idDistrito,
+          COUNT(DISTINCT ot.idOrdenTrabajo) AS otsPendientes,
+          CAST(SUM(r.Cantidad) AS decimal(18,2)) AS cantidadPendiente
+        FROM dbo.tbRecepcionOT r
+        INNER JOIN dbo.tbOrdenTrabajo ot ON ot.idOrdenTrabajo = r.idOT
+        INNER JOIN dbo.tbDetOrdenVenta dov ON dov.idDetOrdenVenta = ot.idDetOrdenVenta
+        INNER JOIN dbo.tbOrdenVenta ov ON ov.idOrdenVenta = dov.idOrdenVenta
+        INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
+        INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
+        INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+        WHERE (@query = '%%'
+          OR c.Nombre LIKE @query
+          OR ISNULL(c.RUC, '') LIKE @query
+          OR ot.numero LIKE @query
+          OR ov.Numero LIKE @query
+          OR ov.Numero LIKE @queryBase
+          OR CONVERT(varchar(20), dov.idOrdenVenta) LIKE @queryBase
+          OR CONVERT(varchar(20), r.idRecepcionOT) LIKE @query)
+          AND r.EstadoOT = 'C'
+          AND r.EstadoGuia = 'N'
+        GROUP BY c.idClieProv, c.Nombre, c.RUC, c.Direccion, c.IdDistrito
+        ORDER BY c.Nombre;
+      `);
+      return result.recordset;
+    } finally {
+      await pool.close();
+    }
+  }
 }
 
 function findProcedureRow(recordsets: unknown, key: string): Record<string, unknown> | undefined {
@@ -359,6 +534,19 @@ function findProcedureRow(recordsets: unknown, key: string): Record<string, unkn
     if (row) return row;
   }
   return undefined;
+}
+
+function legacyLike(value: string) {
+  const trimmed = value.trim();
+  const withoutLegacyLineSuffix = trimmed.replace(/-\d+$/, '');
+  return `%${withoutLegacyLineSuffix}%`;
+}
+
+function isLegacyMetadataPermissionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('SELECT permission was denied')
+    || message.includes('Invalid object name')
+    || message.includes('Invalid column name');
 }
 
 async function listLegacyPaymentTerms(pool: sql.ConnectionPool, warnings: string[]): Promise<FcLegacyFormaPagoRow[]> {

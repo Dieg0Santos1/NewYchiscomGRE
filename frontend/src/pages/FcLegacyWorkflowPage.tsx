@@ -19,6 +19,8 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
   const [catalogsLoading, setCatalogsLoading] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
   const [modalQuery, setModalQuery] = useState('');
+  const [clientQuery, setClientQuery] = useState('');
+  const [descriptionQuery, setDescriptionQuery] = useState('');
   const [clients, setClients] = useState<FcLegacyClient[]>([]);
   const [workOrders, setWorkOrders] = useState<FcLegacyWorkOrder[]>([]);
   const [pending, setPending] = useState<FcLegacyReception[]>([]);
@@ -39,6 +41,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     idMotivoTraslado: 0
   });
   const [lastInternalGuide, setLastInternalGuide] = useState<{ serieNumero?: string } | null>(null);
+  const [nextInternalGuide, setNextInternalGuide] = useState('');
 
   const selectedIds = useMemo(() => selectedReceptions.map((row) => row.idRecepcionOT), [selectedReceptions]);
   const selectedReceptionTotal = useMemo(
@@ -53,6 +56,8 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setSelectedOt(null);
     setSelectedReceptions([]);
     setGuideItems([]);
+    setClientQuery('');
+    setDescriptionQuery('');
     setCatalogsLoading(mode === 'internal-guide');
     const catalogsRequest = mode === 'internal-guide'
       ? fcLegacyWorkflowService.catalogs()
@@ -75,14 +80,21 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       .finally(() => setCatalogsLoading(false));
   }, [mode]);
 
-  async function openPicker(nextPicker: Exclude<Picker, null>) {
+  useEffect(() => {
+    if (mode !== 'internal-guide') return;
+    fcLegacyWorkflowService.nextInternalGuide(guide.serie)
+      .then((result) => setNextInternalGuide(result.serieNumero))
+      .catch(() => setNextInternalGuide(`${guide.serie}-por asignar`));
+  }, [guide.serie, mode]);
+
+  async function openPicker(nextPicker: Exclude<Picker, null>, initialQuery = '') {
     if ((nextPicker === 'work-orders' || nextPicker === 'ready') && !selectedClient) {
       setMessage('Primero selecciona el cliente para mantener ligada la trazabilidad.');
       return;
     }
     setPicker(nextPicker);
-    setModalQuery('');
-    await loadPicker(nextPicker, '');
+    setModalQuery(initialQuery);
+    await loadPicker(nextPicker, initialQuery);
   }
 
   async function loadPicker(target = picker, query = modalQuery) {
@@ -90,9 +102,11 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setLoading(true);
     try {
       if (target === 'clients') {
-        const rows = await fcLegacyWorkflowService.searchClients(query);
+        const rows = await fcLegacyWorkflowService.searchClients(query, mode);
         setClients(rows);
-        setMessage(`${rows.length} cliente(s) con OT pendiente encontrados.`);
+        setMessage(mode === 'internal-guide'
+          ? `${rows.length} cliente(s) con OT recepcionada encontrados.`
+          : `${rows.length} cliente(s) con OT pendiente encontrados.`);
       } else if (target === 'work-orders') {
         const rows = await fcLegacyWorkflowService.searchWorkOrders(query, selectedClient?.idClieProv);
         setWorkOrders(rows);
@@ -115,6 +129,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
 
   function chooseClient(row: FcLegacyClient) {
     setSelectedClient(row);
+    setClientQuery(row.cliente);
     setSelectedOt(null);
     setSelectedReceptions([]);
     setGuideItems([]);
@@ -176,6 +191,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0 }));
     }
     setSelectedReceptions((current) => [...current, row]);
+    setDescriptionQuery(row.descripcion || `${row.numeroOt} | ${row.del} - ${row.al}`);
     setGuideItems((current) => current.some((item) => item.idRecepcionOT === row.idRecepcionOT)
       ? current
       : [...current, {
@@ -189,6 +205,24 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
 
   function updateGuideItem(idRecepcionOT: number, patch: Partial<FcLegacyGuideItem>) {
     setGuideItems((current) => current.map((item) => item.idRecepcionOT === idRecepcionOT ? { ...item, ...patch } : item));
+  }
+
+  function searchClientsFromInput(value: string) {
+    setClientQuery(value);
+    setPicker('clients');
+    setModalQuery(value);
+    if (value.trim().length >= 2) void loadPicker('clients', value);
+  }
+
+  function searchReadyFromDescription(value: string) {
+    setDescriptionQuery(value);
+    if (!selectedClient) {
+      setMessage('Primero selecciona el cliente.');
+      return;
+    }
+    setPicker('ready');
+    setModalQuery(value);
+    void loadPicker('ready', value);
   }
 
   async function createInternalGuide() {
@@ -263,17 +297,17 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
           )}
 
           <div className="legacy-guide-shell">
-            <div className="legacy-guide-number"><span>N#:</span><strong>{guide.serie}-por asignar</strong></div>
+            <div className="legacy-guide-number"><span>N#:</span><strong>{nextInternalGuide || `${guide.serie}-por asignar`}</strong></div>
             <div className="legacy-guide-form">
-              <label className="legacy-wide-field legacy-lookup-field">Cliente<div><input value={selectedClient?.cliente ?? ''} readOnly placeholder="Selecciona un cliente" /><button type="button" className="icon-button" onClick={() => void openPicker('clients')} title="Buscar cliente"><Search size={17} /></button></div></label>
-              <label>Serie<select value={guide.serie} onChange={(event) => setGuide({ ...guide, serie: event.target.value as '001' | '003' })}><option value="001">001</option><option value="003">003</option></select></label>
+              <label className="legacy-wide-field legacy-lookup-field">Cliente<div><input value={clientQuery || selectedClient?.cliente || ''} placeholder="Escribe cliente, RUC, OT u OV" onChange={(event) => searchClientsFromInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void openPicker('clients', clientQuery); }} /><button type="button" className="icon-button" onClick={() => void openPicker('clients', clientQuery)} title="Buscar cliente"><Search size={17} /></button></div></label>
+              <label className="legacy-short-field">Serie<select value={guide.serie} onChange={(event) => setGuide({ ...guide, serie: event.target.value as '001' | '003' })}><option value="001">001</option><option value="003">003</option></select></label>
               <label>Forma pago<select value={guide.formaPago} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, formaPago: event.target.value })}><option value="">Seleccione forma de pago</option>{catalogs.formasPago.map((row) => <option key={row.id} value={row.valor || row.nombre}>{row.nombre}</option>)}</select></label>
               <label>O/C<input value={guide.ordenCompra} onChange={(event) => setGuide({ ...guide, ordenCompra: event.target.value })} /></label>
               <label>Motivo<select value={guide.idMotivoTraslado} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idMotivoTraslado: Number(event.target.value) })}>{catalogs.motivos.map((row) => <option key={row.idMotivoTraslado} value={row.idMotivoTraslado}>{row.nombre}</option>)}</select></label>
               <label className="legacy-wide-field">Direccion entrega<input value={guide.direccion} onChange={(event) => setGuide({ ...guide, direccion: event.target.value })} /></label>
-              <label>Distrito fiscal<input type="number" min="1" value={guide.idDistrito || ''} onChange={(event) => setGuide({ ...guide, idDistrito: Number(event.target.value) })} /></label>
+              <label className="legacy-short-field">Distrito fiscal<input type="number" min="1" value={guide.idDistrito || ''} onChange={(event) => setGuide({ ...guide, idDistrito: Number(event.target.value) })} /></label>
               <label>Vendedor<select value={guide.idEmpleado ?? ''} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idEmpleado: event.target.value ? Number(event.target.value) : null })}><option value="">Seleccione vendedor</option>{catalogs.vendedores.map((row) => <option key={row.idEmpleado} value={row.idEmpleado}>{row.nombre}</option>)}</select></label>
-              <label className="legacy-wide-field legacy-lookup-field">Descripcion<div><input value={guideItems[0]?.descripcion ?? ''} readOnly placeholder="Presione Enter para seleccionar OT recepcionada" onKeyDown={(event) => { if (event.key === 'Enter') void openPicker('ready'); }} /><button type="button" className="icon-button" onClick={() => void openPicker('ready')} title="Seleccionar OT recepcionada"><Search size={17} /></button></div></label>
+              <label className="legacy-wide-field legacy-lookup-field">Descripcion<div><input value={descriptionQuery || guideItems[0]?.descripcion || ''} placeholder="Escribe OT, OV o descripcion" onChange={(event) => searchReadyFromDescription(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void openPicker('ready', descriptionQuery); }} /><button type="button" className="icon-button" onClick={() => void openPicker('ready', descriptionQuery)} title="Seleccionar OT recepcionada"><Search size={17} /></button></div></label>
               <label className="legacy-wide-field">Observaciones<input maxLength={50} value={guide.observaciones} onChange={(event) => setGuide({ ...guide, observaciones: event.target.value })} placeholder="Maximo 50 caracteres en Ychiscom" /></label>
               <button type="button" className="primary-button" disabled={!writeEnabled || selectedIds.length === 0 || !guide.direccion || guide.idDistrito <= 0 || guideItems.some((item) => item.cantidad <= 0 || !item.unidad.trim()) || loading} onClick={() => void createInternalGuide()}><FilePlus2 size={17} /> Emitir guia ({selectedIds.length})</button>
             </div>
@@ -316,6 +350,11 @@ function LegacyPickerModal({ title, query, setQuery, loading, resultCount, onSea
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => onSearch(), 260);
+    return () => window.clearTimeout(handle);
+  }, [query]);
 
   return <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="legacy-picker-modal"><header className="legacy-picker-header"><div><h2>{title}</h2><span>{loading ? 'Consultando...' : `${resultCount} resultado(s)`}</span></div><button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={19} /></button></header><div className="legacy-picker-search"><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSearch(); }} placeholder={placeholder} /><button type="button" className="primary-button" disabled={loading} onClick={onSearch}><Search size={17} /> Buscar</button></div><div className="legacy-picker-table">{children}</div><footer className="legacy-picker-footer"><span>Los resultados permanecen dentro de esta ventana.</span><div>{footer}<button type="button" className="secondary-button" onClick={onClose}>Cerrar</button></div></footer></section></div>;
 }

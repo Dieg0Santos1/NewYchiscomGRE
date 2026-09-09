@@ -31,6 +31,7 @@ const internalGuideSchema = z.object({
 export type FcLegacyWorkflowRouteService = Pick<
   FcLegacyWorkflowService,
   'capabilities' | 'catalogs' | 'searchClients' | 'searchWorkOrders' | 'searchReceptions' | 'createPreGuide' | 'acceptPreGuide' | 'createInternalGuide'
+  | 'getNextInternalGuide'
 >;
 
 export function fcLegacyWorkflowRoutes(
@@ -45,8 +46,17 @@ export function fcLegacyWorkflowRoutes(
     catch (error) { next(error); }
   });
   router.get('/api/fc-legacy/clients', async (req, res, next) => {
-    try { res.json({ ok: true, clients: await service.searchClients(String(req.query.q ?? '')) }); }
+    try {
+      const purpose = z.enum(['pre-guide', 'internal-guide']).catch('pre-guide').parse(req.query.purpose);
+      res.json({ ok: true, clients: await service.searchClients(String(req.query.q ?? ''), purpose) });
+    }
     catch (error) { next(error); }
+  });
+  router.get('/api/fc-legacy/internal-guides/next', async (req, res, next) => {
+    try {
+      const serie = z.enum(['001', '003']).catch('001').parse(req.query.serie);
+      res.json({ ok: true, ...await service.getNextInternalGuide(serie) });
+    } catch (error) { next(error); }
   });
   router.get('/api/fc-legacy/work-orders', async (req, res, next) => {
     try {

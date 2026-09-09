@@ -7,6 +7,7 @@ function createService(writeEnabled = false) {
   return {
     capabilities: vi.fn(() => ({ writeEnabled, confirmationRequired: true })),
     catalogs: vi.fn().mockResolvedValue({ formasPago: [], vendedores: [], motivos: [], warnings: [] }),
+    getNextInternalGuide: vi.fn().mockResolvedValue({ serie: '001', numero: '113025', serieNumero: '001-113025' }),
     searchClients: vi.fn().mockResolvedValue([]),
     searchWorkOrders: vi.fn().mockResolvedValue([]),
     searchReceptions: vi.fn().mockResolvedValue([]),
@@ -45,7 +46,27 @@ describe('fcLegacyWorkflowRoutes', () => {
     const response = await request(app).get('/api/fc-legacy/clients?q=ALICORP');
 
     expect(response.status).toBe(200);
-    expect(service.searchClients).toHaveBeenCalledWith('ALICORP');
+    expect(service.searchClients).toHaveBeenCalledWith('ALICORP', 'pre-guide');
+  });
+
+  it('busca clientes con recepciones listas para guia interna', async () => {
+    const service = createService(false);
+    const app = createApp({ config: testConfig, fcLegacyWorkflowService: service });
+
+    const response = await request(app).get('/api/fc-legacy/clients?q=YCHIFORMAS&purpose=internal-guide');
+
+    expect(response.status).toBe(200);
+    expect(service.searchClients).toHaveBeenCalledWith('YCHIFORMAS', 'internal-guide');
+  });
+
+  it('calcula siguiente correlativo de guia interna', async () => {
+    const service = createService(false);
+    const app = createApp({ config: testConfig, fcLegacyWorkflowService: service });
+
+    const response = await request(app).get('/api/fc-legacy/internal-guides/next?serie=001');
+
+    expect(response.status).toBe(200);
+    expect(response.body.serieNumero).toBe('001-113025');
   });
 
   it('filtra OT y recepciones por cliente seleccionado', async () => {
