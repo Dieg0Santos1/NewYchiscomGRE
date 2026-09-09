@@ -3,11 +3,20 @@ import type { GreInputDto } from '../schemas/greInputSchema.js';
 
 export type GrePayload = ReturnType<typeof mapGreInputToPayload>;
 
+type GrePayloadInput = GreInputDto & {
+  transportista?: {
+    tipoDocumentoTransportista: string;
+    numeroRucTransportista: string;
+    razonSocialTransportista: string;
+  };
+};
+
 const empty = '';
 
-export function mapGreInputToPayload(input: GreInputDto, defaults: GreDefaults) {
+export function mapGreInputToPayload(input: GrePayloadInput, defaults: GreDefaults) {
   const conductor = input.conductor;
   const vehiculo = input.vehiculo;
+  const transportista = input.transportista;
 
   return {
     tipoDocumentoRemitente: defaults.remitente.tipoDocumento,
@@ -95,9 +104,9 @@ export function mapGreInputToPayload(input: GreInputDto, defaults: GreDefaults) 
     numeroDocumentoEstablecimiento: empty,
     tipoDocumentoEstablecimiento: empty,
     razonSocialEstablecimiento: empty,
-    numeroRucTransportista: empty,
-    tipoDocumentoTransportista: empty,
-    razonSocialTransportista: empty,
+    numeroRucTransportista: transportista?.numeroRucTransportista ?? empty,
+    tipoDocumentoTransportista: transportista?.tipoDocumentoTransportista ?? empty,
+    razonSocialTransportista: transportista?.razonSocialTransportista ?? empty,
     numeroRegistroMTC: empty,
     indTransbordoProgramado: empty,
     indRetornoVehiculoEnvaseVacio: empty,

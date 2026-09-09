@@ -58,4 +58,29 @@ describe('SPE_DESPATCH official procedure mapper', () => {
     ]);
     expect(plan.USP_DocRef).toEqual([]);
   });
+
+  it('manda fecha de entrega y transportista cuando la modalidad es transporte publico', () => {
+    const payload = mapGreInputToPayload({
+      ...validGreInput,
+      fechaEntregaBienes: '2026-09-09',
+      traslado: {
+        ...validGreInput.traslado,
+        modalidadTraslado: '01'
+      },
+      conductor: undefined,
+      vehiculo: undefined,
+      transportista: {
+        tipoDocumentoTransportista: '6',
+        numeroRucTransportista: '20555555555',
+        razonSocialTransportista: 'TRANSPORTES PRUEBA S.A.C.'
+      }
+    }, getGreDefaults(testConfig));
+    const plan = toSpeDespatchProcedurePlan(payload);
+    const params = new Map(plan.USP_CabeceraGuia.map((param) => [param.name, param.value]));
+
+    expect(params.get('fechaEntregaBienes')).toBe('2026-09-09');
+    expect(params.get('tipoDocumentoTransportista')).toBe('6');
+    expect(params.get('numeroRucTransportista')).toBe('20555555555');
+    expect(params.get('razonsocialTransportista')).toBe('TRANSPORTES PRUEBA S.A.C.');
+  });
 });

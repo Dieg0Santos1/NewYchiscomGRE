@@ -176,4 +176,27 @@ describe('mapGreInputToPayload', () => {
       expect(payload).toHaveProperty(key);
     }
   });
+
+  it('incluye transportista en el payload central para transporte publico', () => {
+    const payload = mapGreInputToPayload({
+      ...validGreInput,
+      traslado: {
+        ...validGreInput.traslado,
+        modalidadTraslado: '01'
+      },
+      conductor: undefined,
+      vehiculo: undefined,
+      transportista: {
+        tipoDocumentoTransportista: '6',
+        numeroRucTransportista: '20555555555',
+        razonSocialTransportista: 'TRANSPORTES PRUEBA S.A.C.'
+      }
+    }, getGreDefaults(testConfig));
+
+    expect(payload.tipoDocumentoTransportista).toBe('6');
+    expect(payload.numeroRucTransportista).toBe('20555555555');
+    expect(payload.razonSocialTransportista).toBe('TRANSPORTES PRUEBA S.A.C.');
+    expect(payload.numeroDocumentoConductor).toBe('');
+    expect(payload.numeroPlacaVehiculoPrin).toBe('');
+  });
 });
