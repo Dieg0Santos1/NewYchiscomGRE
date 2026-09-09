@@ -127,7 +127,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppConfig {
     existingGreApiToken: parsed.EXISTING_GRE_API_TOKEN,
     requestTimeoutMs: parsed.GRE_REQUEST_TIMEOUT_MS,
     directDbInsertEnabled: parsed.GRE_DIRECT_DB_INSERT_ENABLED,
-    fcLegacyWriteEnabled: parsed.FC_LEGACY_WRITE_ENABLED,
+    fcLegacyWriteEnabled: true,
     auth: {
       enabled: parsed.AUTH_ENABLED,
       sessionSecret: parsed.AUTH_SESSION_SECRET,

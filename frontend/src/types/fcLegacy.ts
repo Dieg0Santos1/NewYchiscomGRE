@@ -1,5 +1,30 @@
 export type FcLegacyCapabilities = {
   writeEnabled: boolean;
+  confirmationRequired: boolean;
+};
+
+export type FcLegacyFormaPago = {
+  id: string;
+  nombre: string;
+  valor: string;
+  dias: number;
+};
+
+export type FcLegacyVendedor = {
+  idEmpleado: number;
+  nombre: string;
+};
+
+export type FcLegacyMotivo = {
+  idMotivoTraslado: number;
+  nombre: string;
+};
+
+export type FcLegacyCatalogs = {
+  formasPago: FcLegacyFormaPago[];
+  vendedores: FcLegacyVendedor[];
+  motivos: FcLegacyMotivo[];
+  warnings: string[];
 };
 
 export type FcLegacyClient = {

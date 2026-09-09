@@ -2,6 +2,41 @@
 
 Fecha de corte: 2026-08-31
 
+## Avance 2026-09-09 - cierre funcional FC legacy para prueba
+
+Se dejo el flujo FC legacy listo para prueba desde el portal sin depender de
+`FC_LEGACY_WRITE_ENABLED` como controlador operativo.
+
+Cambios:
+
+- La bandera `FC_LEGACY_WRITE_ENABLED` queda tolerada por compatibilidad en
+  `.env`, pero el backend ya no bloquea pre-guia/aceptacion/guia interna por
+  esa variable.
+- La proteccion se mantiene por permisos SQL minimos y por la cabecera
+  `X-Confirm-Legacy-Write: YES` en cada escritura legacy.
+- Se agrego `GET /api/fc-legacy/catalogs` para cargar desde YCHIDB3:
+  - formas de pago desde `tbPropiedades` tipo `FPAG`;
+  - vendedores desde `VW_VENDEDORES` o `VW_EMPLEADOS`;
+  - motivos desde `tbMotivoTraslado` cuando exista/permisos lo permitan.
+- La pantalla de guia interna usa combos de forma de pago, motivo y vendedor,
+  muestra pasos del flujo y, al crear la guia interna, deja visible el
+  siguiente paso hacia GRE.
+- Se agrego el script manual
+  `sql/manual/2026-09-09_fc_legacy_workflow_04_upgrade_wrapper_catalogs.sql`
+  para actualizar `dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC` y permitir `idEmpleado`
+  e `idMotivoTraslado` desde el portal.
+
+Pendiente antes de la prueba real:
+
+1. Ejecutar el script `04_upgrade_wrapper_catalogs.sql` en YCHIDB3.
+2. Confirmar que el usuario de la app conserva solo `EXECUTE` sobre wrappers y
+   `SELECT` sobre objetos de consulta/catalogo necesarios.
+3. Hacer una prueba con una OT autorizada:
+   pre-guia -> aceptar -> guia interna -> buscar guia fisica `001/003` en GRE
+   -> declarar GRE.
+4. Comparar antes/despues en Ychiscom: `tbRecepcionOT`, `tbGuias`,
+   `tbDetGuias`, `tbDocumentos` y estados de OT.
+
 ## Avance 2026-09-02 - pre-guia y guia interna FC
 
 Se completo la auditoria read-only del flujo antiguo y se implemento en el portal la primera version protegida:
@@ -21,7 +56,8 @@ Hallazgos que deben mantenerse:
 
 Protecciones incorporadas:
 
-- `FC_LEGACY_WRITE_ENABLED=false` por defecto.
+- Historico 2026-09-02: inicialmente se bloqueo con `FC_LEGACY_WRITE_ENABLED=false`.
+- Estado 2026-09-09: la bandera ya no controla el flujo; se conserva solo por compatibilidad.
 - Los endpoints de escritura exigen ademas `X-Confirm-Legacy-Write: YES`.
 - Los wrappers usan transaccion, `XACT_ABORT`, bloqueos de aplicacion, validacion por recepcion e idempotencia al aceptar.
 - El usuario de aplicacion solo recibira `EXECUTE` sobre los wrappers; no se requieren nuevos permisos directos de INSERT/UPDATE/DELETE.
@@ -45,15 +81,15 @@ UX actualizado el 2026-09-02:
 - La pantalla principal conserva solo el formulario y un resumen de la OT/recepciones seleccionadas.
 - El selector de pre-guia solo lista OT elegibles (`EstGuia N/M` con cantidad pendiente).
 
-Secuencia pendiente para activacion controlada:
+Secuencia original de activacion controlada:
 
 1. Ejecutar la prevalidacion read-only y comprobar `puedeInstalar = 1`.
 2. Instalar los wrappers sin permisos.
 3. Ejecutar la verificacion read-only y comprobar `listoParaConcederExecute = 1`.
-4. Conceder `EXECUTE` con el script separado, manteniendo la bandera apagada.
+4. Conceder `EXECUTE` con el script separado.
 5. Comprobar que las pantallas consultan correctamente.
 6. Elegir una OT de prueba autorizada y capturar el estado antes de la operacion.
-7. Activar temporalmente `FC_LEGACY_WRITE_ENABLED=true`, reiniciar la app y ejecutar pre-guia, aceptacion y guia interna.
+7. Ejecutar pre-guia, aceptacion y guia interna con usuario autorizado y confirmacion de escritura del endpoint.
 8. Comparar cabecera, detalles, movimientos y estados contra el flujo antiguo.
 9. Buscar la guia fisica desde la pantalla GRE, declarar la electronica y verificar los campos `idGuiaFisicaYchiscom`, `numeroGuiaFisica` e `idDocumentoYchiscom`.
 
@@ -63,8 +99,8 @@ Estado de despliegue al 2026-09-02 10:30 (America/Lima):
 - Tres wrappers instalados y con definicion visible.
 - `gre_app_test` tiene `EXECUTE = 1` y `ALTER = 0` sobre los tres wrappers.
 - Los tres wrappers conservan `XACT_ABORT` y `sp_getapplock`.
-- `FC_LEGACY_WRITE_ENABLED` permanece en `false`; el portal no puede iniciar escrituras todavia.
-- Siguiente bloqueo deliberado: el usuario debe autorizar expresamente una OT de prueba antes de activar temporalmente la bandera.
+- Estado superado el 2026-09-09: el portal ya no depende de `FC_LEGACY_WRITE_ENABLED`.
+- Siguiente bloqueo deliberado: el usuario debe autorizar expresamente una OT de prueba antes de ejecutar el flujo completo.
 
 ## Proyecto
 

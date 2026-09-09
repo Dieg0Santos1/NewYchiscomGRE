@@ -18,4 +18,14 @@ describe('configuracion de acceso del portal', () => {
     expect(config.auth.enabled).toBe(false);
     expect(config.serveFrontend).toBe(false);
   });
+
+  it('mantiene habilitado el flujo legacy FC aunque exista la bandera heredada apagada', () => {
+    const config = loadEnv({
+      SERVE_FRONTEND: 'false',
+      AUTH_ENABLED: 'false',
+      FC_LEGACY_WRITE_ENABLED: 'false'
+    });
+
+    expect(config.fcLegacyWriteEnabled).toBe(true);
+  });
 });

@@ -16,12 +16,15 @@ const internalGuideSchema = z.object({
   direccion: z.string().trim().min(1).max(150),
   idDistrito: z.number().int().positive(),
   ordenCompra: z.string().trim().max(50),
-  observaciones: z.string().trim().max(50)
+  observaciones: z.string().trim().max(50),
+  formaPago: z.string().trim().max(80).optional().default(''),
+  idEmpleado: z.number().int().positive().nullable().optional(),
+  idMotivoTraslado: z.number().int().nonnegative().nullable().optional()
 });
 
 export type FcLegacyWorkflowRouteService = Pick<
   FcLegacyWorkflowService,
-  'capabilities' | 'searchClients' | 'searchWorkOrders' | 'searchReceptions' | 'createPreGuide' | 'acceptPreGuide' | 'createInternalGuide'
+  'capabilities' | 'catalogs' | 'searchClients' | 'searchWorkOrders' | 'searchReceptions' | 'createPreGuide' | 'acceptPreGuide' | 'createInternalGuide'
 >;
 
 export function fcLegacyWorkflowRoutes(
@@ -31,6 +34,10 @@ export function fcLegacyWorkflowRoutes(
   const router = Router();
 
   router.get('/api/fc-legacy/capabilities', (_req, res) => res.json({ ok: true, ...service.capabilities() }));
+  router.get('/api/fc-legacy/catalogs', async (_req, res, next) => {
+    try { res.json({ ok: true, ...await service.catalogs() }); }
+    catch (error) { next(error); }
+  });
   router.get('/api/fc-legacy/clients', async (req, res, next) => {
     try { res.json({ ok: true, clients: await service.searchClients(String(req.query.q ?? '')) }); }
     catch (error) { next(error); }

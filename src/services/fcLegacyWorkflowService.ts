@@ -29,6 +29,30 @@ export type FcLegacyClientRow = {
   cantidadPendiente: number;
 };
 
+export type FcLegacyFormaPagoRow = {
+  id: string;
+  nombre: string;
+  valor: string;
+  dias: number;
+};
+
+export type FcLegacyVendedorRow = {
+  idEmpleado: number;
+  nombre: string;
+};
+
+export type FcLegacyMotivoRow = {
+  idMotivoTraslado: number;
+  nombre: string;
+};
+
+export type FcLegacyCatalogs = {
+  formasPago: FcLegacyFormaPagoRow[];
+  vendedores: FcLegacyVendedorRow[];
+  motivos: FcLegacyMotivoRow[];
+  warnings: string[];
+};
+
 export type FcReceptionRow = {
   idRecepcionOT: number;
   idOrdenTrabajo: number;
@@ -54,7 +78,31 @@ export class FcLegacyWorkflowService {
   constructor(private readonly config: AppConfig) {}
 
   capabilities() {
-    return { writeEnabled: this.config.fcLegacyWriteEnabled };
+    return { writeEnabled: true, confirmationRequired: true };
+  }
+
+  async catalogs(): Promise<FcLegacyCatalogs> {
+    const pool = createYchiPool(this.config);
+    await pool.connect();
+
+    try {
+      const warnings: string[] = [];
+
+      const [formasPago, vendedores, motivos] = await Promise.all([
+        listLegacyPaymentTerms(pool, warnings),
+        listLegacySellers(pool, warnings),
+        listLegacyTransferReasons(pool, warnings)
+      ]);
+
+      return {
+        formasPago,
+        vendedores,
+        motivos: motivos.length > 0 ? motivos : defaultLegacyTransferReasons(),
+        warnings
+      };
+    } finally {
+      await pool.close();
+    }
   }
 
   async searchClients(query: string): Promise<FcLegacyClientRow[]> {
@@ -228,7 +276,6 @@ export class FcLegacyWorkflowService {
   }
 
   async createPreGuide(input: { numeroOt: string; cantidad: number; del: string; al: string }) {
-    this.assertWriteEnabled();
     const pool = createYchiPool(this.config);
     await pool.connect();
     try {
@@ -243,7 +290,6 @@ export class FcLegacyWorkflowService {
   }
 
   async acceptPreGuide(input: { idRecepcionOT: number }) {
-    this.assertWriteEnabled();
     const pool = createYchiPool(this.config);
     await pool.connect();
     try {
@@ -261,8 +307,10 @@ export class FcLegacyWorkflowService {
     idDistrito: number;
     ordenCompra: string;
     observaciones: string;
+    formaPago?: string;
+    idEmpleado?: number | null;
+    idMotivoTraslado?: number | null;
   }) {
-    this.assertWriteEnabled();
     const pool = createYchiPool(this.config);
     await pool.connect();
     try {
@@ -274,15 +322,12 @@ export class FcLegacyWorkflowService {
       request.input('idDistrito', sql.Int, input.idDistrito);
       request.input('ordenCompra', sql.VarChar(50), input.ordenCompra);
       request.input('observaciones', sql.VarChar(50), input.observaciones);
+      request.input('formaPago', sql.VarChar(80), input.formaPago ?? '');
+      request.input('idEmpleado', sql.Int, input.idEmpleado ?? null);
+      request.input('idMotivoTraslado', sql.Int, input.idMotivoTraslado ?? 0);
       const result = await request.execute('dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC');
       return findProcedureRow(result.recordsets, 'serieNumero');
     } finally { await pool.close(); }
-  }
-
-  private assertWriteEnabled() {
-    if (!this.config.fcLegacyWriteEnabled) {
-      throw new Error('La escritura de pre-guia/guia interna esta desactivada hasta validar los wrappers Ychiscom.');
-    }
   }
 }
 
@@ -293,4 +338,122 @@ function findProcedureRow(recordsets: unknown, key: string): Record<string, unkn
     if (row) return row;
   }
   return undefined;
+}
+
+async function listLegacyPaymentTerms(pool: sql.ConnectionPool, warnings: string[]): Promise<FcLegacyFormaPagoRow[]> {
+  try {
+    const result = await new sql.Request(pool).query<{
+      idPropiedades: number;
+      Nombre: string | null;
+      Valor: string | null;
+      Descripcion: string | null;
+    }>(`
+      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+      SELECT TOP (120)
+        idPropiedades,
+        Nombre,
+        Valor,
+        Descripcion
+      FROM dbo.tbPropiedades
+      WHERE tipo = 'FPAG'
+        AND ISNULL(Valor, '') NOT LIKE '(obsoleto)%'
+        AND ISNULL(Nombre, '') NOT LIKE '(obsoleto)%'
+      ORDER BY
+        CASE WHEN Nombre LIKE 'Contado%' THEN 0 ELSE 1 END,
+        Nombre;
+    `);
+
+    return result.recordset.map((row) => ({
+      id: String(row.idPropiedades),
+      nombre: row.Nombre?.trim() || row.Valor?.trim() || String(row.idPropiedades),
+      valor: row.Valor?.trim() || row.Nombre?.trim() || '',
+      dias: Number(row.Descripcion ?? 0) || 0
+    }));
+  } catch (error) {
+    warnings.push(catalogWarning('formas de pago', error));
+    return [];
+  }
+}
+
+async function listLegacySellers(pool: sql.ConnectionPool, warnings: string[]): Promise<FcLegacyVendedorRow[]> {
+  const sources = [
+    `
+      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+      SELECT DISTINCT TOP (150)
+        idEmpleado,
+        LTRIM(RTRIM(Nombre)) AS nombre
+      FROM dbo.VW_VENDEDORES
+      WHERE idEmpleado IS NOT NULL
+        AND NULLIF(LTRIM(RTRIM(Nombre)), '') IS NOT NULL
+      ORDER BY nombre;
+    `,
+    `
+      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+      SELECT DISTINCT TOP (150)
+        idEmpleado,
+        LTRIM(RTRIM(ISNULL(Nombre, '') + ' ' + ISNULL(Apellido, ''))) AS nombre
+      FROM dbo.VW_EMPLEADOS
+      WHERE idEmpleado IS NOT NULL
+        AND NULLIF(LTRIM(RTRIM(ISNULL(Nombre, '') + ' ' + ISNULL(Apellido, ''))), '') IS NOT NULL
+      ORDER BY nombre;
+    `
+  ];
+
+  for (const query of sources) {
+    try {
+      const result = await new sql.Request(pool).query<FcLegacyVendedorRow>(query);
+      if (result.recordset.length > 0) return result.recordset;
+    } catch (error) {
+      warnings.push(catalogWarning('vendedores', error));
+    }
+  }
+
+  return [];
+}
+
+async function listLegacyTransferReasons(pool: sql.ConnectionPool, warnings: string[]): Promise<FcLegacyMotivoRow[]> {
+  const sources = [
+    `
+      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+      SELECT DISTINCT TOP (100)
+        idMotivoTraslado,
+        LTRIM(RTRIM(Descripcion)) AS nombre
+      FROM dbo.tbMotivoTraslado
+      WHERE idMotivoTraslado IS NOT NULL
+        AND NULLIF(LTRIM(RTRIM(Descripcion)), '') IS NOT NULL
+      ORDER BY nombre;
+    `,
+    `
+      SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+      SELECT DISTINCT TOP (100)
+        idMotivoTraslado,
+        LTRIM(RTRIM(Nombre)) AS nombre
+      FROM dbo.tbMotivoTraslado
+      WHERE idMotivoTraslado IS NOT NULL
+        AND NULLIF(LTRIM(RTRIM(Nombre)), '') IS NOT NULL
+      ORDER BY nombre;
+    `
+  ];
+
+  for (const query of sources) {
+    try {
+      const result = await new sql.Request(pool).query<FcLegacyMotivoRow>(query);
+      if (result.recordset.length > 0) return result.recordset;
+    } catch (error) {
+      warnings.push(catalogWarning('motivos de traslado legacy', error));
+    }
+  }
+
+  return [
+    ...defaultLegacyTransferReasons()
+  ];
+}
+
+function defaultLegacyTransferReasons(): FcLegacyMotivoRow[] {
+  return [{ idMotivoTraslado: 0, nombre: 'Segun guia interna' }];
+}
+
+function catalogWarning(source: string, error: unknown) {
+  const message = error instanceof Error ? error.message : 'sin detalle';
+  return `No se pudo cargar ${source} desde YCHIDB3: ${message}`;
 }

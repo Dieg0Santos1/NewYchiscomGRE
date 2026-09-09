@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CheckCircle2, FilePlus2, ListFilter, Search, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, FilePlus2, ListFilter, Search, X } from 'lucide-react';
 import { fcLegacyWorkflowService } from '../services/FcLegacyWorkflowService';
-import type { FcLegacyClient, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
+import type { FcLegacyCatalogs, FcLegacyClient, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
 
 type Props = { mode: 'pre-guide' | 'internal-guide' };
 type Picker = 'clients' | 'work-orders' | 'pending' | 'ready' | null;
@@ -10,6 +10,13 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
   const [writeEnabled, setWriteEnabled] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [catalogs, setCatalogs] = useState<FcLegacyCatalogs>({
+    formasPago: [],
+    vendedores: [],
+    motivos: [],
+    warnings: []
+  });
+  const [catalogsLoading, setCatalogsLoading] = useState(false);
   const [picker, setPicker] = useState<Picker>(null);
   const [modalQuery, setModalQuery] = useState('');
   const [clients, setClients] = useState<FcLegacyClient[]>([]);
@@ -27,8 +34,10 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     ordenCompra: '',
     observaciones: '',
     formaPago: '',
-    vendedor: ''
+    idEmpleado: null as number | null,
+    idMotivoTraslado: 0
   });
+  const [lastInternalGuide, setLastInternalGuide] = useState<{ serieNumero?: string } | null>(null);
 
   const selectedIds = useMemo(() => selectedReceptions.map((row) => row.idRecepcionOT), [selectedReceptions]);
   const selectedReceptionTotal = useMemo(
@@ -42,9 +51,23 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setSelectedClient(null);
     setSelectedOt(null);
     setSelectedReceptions([]);
-    fcLegacyWorkflowService.capabilities()
-      .then((result) => setWriteEnabled(result.writeEnabled))
-      .catch((error) => setMessage(error instanceof Error ? error.message : 'No se pudo consultar el modo operativo.'));
+    setCatalogsLoading(true);
+    Promise.all([
+      fcLegacyWorkflowService.capabilities(),
+      fcLegacyWorkflowService.catalogs()
+    ])
+      .then(([capabilities, loadedCatalogs]) => {
+        setWriteEnabled(capabilities.writeEnabled);
+        setCatalogs(loadedCatalogs);
+        setGuide((current) => ({
+          ...current,
+          formaPago: current.formaPago || loadedCatalogs.formasPago[0]?.valor || loadedCatalogs.formasPago[0]?.nombre || '',
+          idEmpleado: current.idEmpleado ?? loadedCatalogs.vendedores[0]?.idEmpleado ?? null,
+          idMotivoTraslado: current.idMotivoTraslado ?? loadedCatalogs.motivos[0]?.idMotivoTraslado ?? 0
+        }));
+      })
+      .catch((error) => setMessage(error instanceof Error ? error.message : 'No se pudo consultar el modo operativo.'))
+      .finally(() => setCatalogsLoading(false));
   }, [mode]);
 
   async function openPicker(nextPicker: Exclude<Picker, null>) {
@@ -154,7 +177,9 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setLoading(true);
     try {
       const result = await fcLegacyWorkflowService.createInternalGuide({ ...guide, idRecepciones: selectedIds });
-      setMessage(`Guia interna ${result.internalGuide?.serieNumero ?? guide.serie} creada con trazabilidad por recepcion.`);
+      const serieNumero = result.internalGuide?.serieNumero ?? guide.serie;
+      setLastInternalGuide({ serieNumero });
+      setMessage(`Guia interna ${serieNumero} creada con trazabilidad por recepcion. Ya puede buscarse en GRE.`);
       setSelectedReceptions([]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudo crear la guia interna.');
@@ -168,9 +193,11 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
           <h1>{mode === 'pre-guide' ? 'Pre-guias FC' : 'Guias internas FC'}</h1>
           <p>{mode === 'pre-guide' ? 'Cliente, OT/OV y rango de recepcion.' : 'Cliente, recepciones aceptadas y datos de guia fisica.'}</p>
         </div>
-        <span className={writeEnabled ? 'legacy-mode-enabled' : 'legacy-mode-readonly'}>{writeEnabled ? 'Escritura controlada habilitada' : 'Solo lectura'}</span>
+        <span className={writeEnabled ? 'legacy-mode-enabled' : 'legacy-mode-readonly'}>{writeEnabled ? 'Listo para prueba' : 'Sin permisos de escritura'}</span>
       </div>
-      {!writeEnabled && <div className="legacy-safety-note">Modo de revision activo. Puedes buscar y seleccionar registros; crear, aceptar y emitir siguen bloqueados.</div>}
+      <LegacyFlowSteps current={mode === 'pre-guide' ? 1 : 2} />
+      {!writeEnabled && <div className="legacy-safety-note">La pantalla esta cargada, pero el backend no pudo confirmar disponibilidad de escritura legacy.</div>}
+      {catalogs.warnings.length > 0 && <div className="legacy-safety-note">Catalogos parcialmente cargados: {catalogs.warnings[0]}</div>}
       {message && <p className="inline-message legacy-message">{message}</p>}
 
       {mode === 'pre-guide' ? (
@@ -212,17 +239,30 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
             </SelectionCard>
           </div>
 
+          {lastInternalGuide?.serieNumero && (
+            <div className="legacy-next-action">
+              <div>
+                <strong>Guia interna creada: {lastInternalGuide.serieNumero}</strong>
+                <span>El siguiente paso es buscar esta guia fisica en GRE y declarar la electronica.</span>
+              </div>
+              <a className="primary-button" href="#/guias/nueva">
+                Ir a GRE <ArrowRight size={17} />
+              </a>
+            </div>
+          )}
+
           <div className="legacy-guide-shell">
             <div className="legacy-guide-number"><span>N#:</span><strong>{guide.serie}-por asignar</strong></div>
             <div className="legacy-guide-form">
               <label className="legacy-wide-field">Cliente<input value={selectedClient?.cliente ?? ''} readOnly placeholder="Selecciona un cliente" /></label>
               <label>Serie<select value={guide.serie} onChange={(event) => setGuide({ ...guide, serie: event.target.value as '001' | '003' })}><option value="001">001</option><option value="003">003</option></select></label>
-              <label>Forma pago<input value={guide.formaPago} onChange={(event) => setGuide({ ...guide, formaPago: event.target.value })} placeholder="Pendiente de catalogo" /></label>
+              <label>Forma pago<select value={guide.formaPago} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, formaPago: event.target.value })}><option value="">Seleccione forma de pago</option>{catalogs.formasPago.map((row) => <option key={row.id} value={row.valor || row.nombre}>{row.nombre}</option>)}</select></label>
               <label>O/C<input value={guide.ordenCompra} onChange={(event) => setGuide({ ...guide, ordenCompra: event.target.value })} /></label>
-              <label>Motivo<input value={guide.observaciones} onChange={(event) => setGuide({ ...guide, observaciones: event.target.value })} /></label>
+              <label>Motivo<select value={guide.idMotivoTraslado} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idMotivoTraslado: Number(event.target.value) })}>{catalogs.motivos.map((row) => <option key={row.idMotivoTraslado} value={row.idMotivoTraslado}>{row.nombre}</option>)}</select></label>
               <label className="legacy-wide-field">Direccion entrega<input value={guide.direccion} onChange={(event) => setGuide({ ...guide, direccion: event.target.value })} /></label>
               <label>Distrito fiscal<input type="number" min="1" value={guide.idDistrito || ''} onChange={(event) => setGuide({ ...guide, idDistrito: Number(event.target.value) })} /></label>
-              <label>Vendedor<input value={guide.vendedor} onChange={(event) => setGuide({ ...guide, vendedor: event.target.value })} placeholder="Pendiente de catalogo" /></label>
+              <label>Vendedor<select value={guide.idEmpleado ?? ''} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idEmpleado: event.target.value ? Number(event.target.value) : null })}><option value="">Seleccione vendedor</option>{catalogs.vendedores.map((row) => <option key={row.idEmpleado} value={row.idEmpleado}>{row.nombre}</option>)}</select></label>
+              <label className="legacy-wide-field">Observaciones<input maxLength={50} value={guide.observaciones} onChange={(event) => setGuide({ ...guide, observaciones: event.target.value })} placeholder="Maximo 50 caracteres en Ychiscom" /></label>
               <button type="button" className="primary-button" disabled={!writeEnabled || selectedIds.length === 0 || !guide.direccion || guide.idDistrito <= 0 || loading} onClick={() => void createInternalGuide()}><FilePlus2 size={17} /> Emitir guia ({selectedIds.length})</button>
             </div>
             <SelectedReceptionTable rows={selectedReceptions} />
@@ -236,6 +276,17 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       {picker === 'ready' && <LegacyPickerModal title={`Seleccionar recepciones${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT u OV" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReceptionTable rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
     </section>
   );
+}
+
+function LegacyFlowSteps({ current }: { current: 1 | 2 }) {
+  const steps = [
+    'Pre-guia',
+    'Guia interna',
+    'GRE electronica',
+    'Factura'
+  ];
+
+  return <div className="legacy-flow-steps">{steps.map((step, index) => <div key={step} className={index + 1 <= current ? 'active' : undefined}><span>{index + 1}</span>{step}</div>)}</div>;
 }
 
 function SelectionCard({ title, description, buttonLabel, onOpen, children }: { title: string; description: string; buttonLabel: string; onOpen: () => void; children: ReactNode }) {

@@ -5,7 +5,8 @@ import { testConfig } from './fixtures.js';
 
 function createService(writeEnabled = false) {
   return {
-    capabilities: vi.fn(() => ({ writeEnabled })),
+    capabilities: vi.fn(() => ({ writeEnabled, confirmationRequired: true })),
+    catalogs: vi.fn().mockResolvedValue({ formasPago: [], vendedores: [], motivos: [], warnings: [] }),
     searchClients: vi.fn().mockResolvedValue([]),
     searchWorkOrders: vi.fn().mockResolvedValue([]),
     searchReceptions: vi.fn().mockResolvedValue([]),
@@ -24,6 +25,17 @@ describe('fcLegacyWorkflowRoutes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.writeEnabled).toBe(false);
+    expect(response.body.confirmationRequired).toBe(true);
+  });
+
+  it('lista catalogos legacy para guia interna', async () => {
+    const service = createService(false);
+    const app = createApp({ config: testConfig, fcLegacyWorkflowService: service });
+
+    const response = await request(app).get('/api/fc-legacy/catalogs');
+
+    expect(response.status).toBe(200);
+    expect(service.catalogs).toHaveBeenCalled();
   });
 
   it('busca clientes disponibles para pre-guia', async () => {
