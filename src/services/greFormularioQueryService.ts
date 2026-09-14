@@ -167,6 +167,18 @@ type DestinationHistoryRow = {
   bl_createdAt: Date | null;
 };
 
+type ManualDestinationRow = {
+  id: number;
+  numeroDocumentoDestinatario: string;
+  ubigeo: string;
+  direccion: string;
+  esPrincipal: boolean;
+};
+
+type ManualGreDestino = GreDestino & {
+  esPrincipalManual: boolean;
+};
+
 type DriverRow = {
   NUMERODOCUMENTOCHOFER: string;
   TIPODOCUMENTOCHOFER: string;
@@ -174,6 +186,15 @@ type DriverRow = {
   APELLIDO: string;
   BREVETE: string;
   PLACAVEHICULO: string;
+};
+
+export type ManualDriverInput = {
+  tipoDocumento: string;
+  numeroDocumento: string;
+  nombres: string;
+  apellidos: string;
+  licencia: string;
+  placa: string;
 };
 
 type OperationRow = {
@@ -267,6 +288,7 @@ export class GreFormularioQueryService {
 
   const documents: WorkOrderDocument[] = [];
       let destinosError: string | null = null;
+      let usedManualDestinations = false;
       let usedHistoricalDestinations = false;
       let usedYchiDestinations = false;
       const productWarnings: string[] = [];
@@ -279,6 +301,12 @@ export class GreFormularioQueryService {
           const destinatario = productResult.destinatario ?? await resolveRecipient(bizlinksPool, row);
           let destinos: GreDestino[] = productResult.destinos;
           usedYchiDestinations = usedYchiDestinations || destinos.length > 0;
+
+          if (destinatario) {
+            const manualDestinations = await this.getManualDestinosSafe(destinatario.numeroDocumentoDestinatario);
+            usedManualDestinations = usedManualDestinations || manualDestinations.length > 0;
+            destinos = mergeManualDestinations(manualDestinations, destinos);
+          }
 
           if (destinatario && destinos.length === 0) {
             try {
@@ -318,8 +346,11 @@ export class GreFormularioQueryService {
         : documents;
       const hasProducts = responseDocuments.some((document) => document.productos.length > 0);
       const hasRecipientAndDestination = responseDocuments.some((document) => document.destinatario && document.destinos.length > 0);
-      const usedAnyDestinationFallback = usedYchiDestinations || usedHistoricalDestinations;
+      const usedAnyDestinationFallback = usedManualDestinations || usedYchiDestinations || usedHistoricalDestinations;
       const warnings = [
+        usedManualDestinations
+          ? 'Destino cargado desde destinos manuales.'
+          : '',
         usedYchiDestinations
           ? 'Destino cargado desde YCHIDB3.'
           : '',
@@ -415,6 +446,7 @@ export class GreFormularioQueryService {
       await bizlinksPool.connect();
 
       let destinosError: string | null = null;
+      let usedManualDestinations = false;
       let usedHistoricalDestinations = false;
       let usedYchiDestinations = false;
 
@@ -448,6 +480,12 @@ export class GreFormularioQueryService {
         const destinatario = recipientResult.destinatario;
         let destinos = destinationResult.destinos;
         usedYchiDestinations = destinos.length > 0;
+
+        if (destinatario) {
+          const manualDestinations = await this.getManualDestinosSafe(destinatario.numeroDocumentoDestinatario);
+          usedManualDestinations = manualDestinations.length > 0;
+          destinos = mergeManualDestinations(manualDestinations, destinos);
+        }
 
         if (destinatario && destinos.length === 0) {
           try {
@@ -495,6 +533,7 @@ export class GreFormularioQueryService {
         };
 
         const warnings = [
+          usedManualDestinations ? 'Destino cargado desde destinos manuales.' : '',
           usedYchiDestinations ? 'Destino cargado desde YCHIDB3.' : '',
           usedHistoricalDestinations && destinosError ? 'Destino cargado desde historial Bizlinks.' : '',
           orderPurchaseResult.warning,
@@ -504,7 +543,7 @@ export class GreFormularioQueryService {
 
         const hasProducts = productos.length > 0;
         const hasRecipientAndDestination = destinatario && destinos.length > 0;
-        const usedAnyDestinationFallback = usedYchiDestinations || usedHistoricalDestinations;
+        const usedAnyDestinationFallback = usedManualDestinations || usedYchiDestinations || usedHistoricalDestinations;
 
         return {
           status: destinosError && !usedAnyDestinationFallback
@@ -557,9 +596,28 @@ export class GreFormularioQueryService {
       }
     };
 
-    const [ychiResult, historyResult] = await Promise.allSettled([ychiAttempt(), historyAttempt()]);
+    const manualAttempt = async () => {
+      const greFcPool = createGreFcPool(this.config);
+      try {
+        await greFcPool.connect();
+        return await getManualDestinations(greFcPool, normalized);
+      } finally {
+        await greFcPool.close().catch(() => undefined);
+      }
+    };
+
+    const [manualResult, ychiResult, historyResult] = await Promise.allSettled([manualAttempt(), ychiAttempt(), historyAttempt()]);
+    let manualDestinations: ManualGreDestino[] = [];
     let ychiDestinations: GreDestino[] = [];
     let historicalDestinations: GreDestino[] = [];
+
+    if (manualResult.status === 'fulfilled') {
+      manualDestinations = manualResult.value;
+    } else {
+      warnings.push(manualResult.reason instanceof Error
+        ? `No se pudo consultar destinos manuales (${manualResult.reason.message}).`
+        : 'No se pudo consultar destinos manuales.');
+    }
 
     if (ychiResult.status === 'fulfilled') {
       ychiDestinations = ychiResult.value.destinos;
@@ -578,9 +636,10 @@ export class GreFormularioQueryService {
         : 'No se pudo consultar el historial Bizlinks.');
     }
 
-    const destinos = combineDestinations([...ychiDestinations, ...historicalDestinations]);
-    if (ychiDestinations.length > 0) {
-      warnings.push('Destino cargado desde YCHIDB3.');
+    const destinos = mergeManualDestinations(manualDestinations, [...ychiDestinations, ...historicalDestinations]);
+    if (manualDestinations.length > 0 || ychiDestinations.length > 0) {
+      if (manualDestinations.length > 0) warnings.push('Destino cargado desde destinos manuales.');
+      if (ychiDestinations.length > 0) warnings.push('Destino cargado desde YCHIDB3.');
       return { numeroDocumento: normalized, destinos, warnings };
     }
     if (historicalDestinations.length > 0) {
@@ -591,7 +650,7 @@ export class GreFormularioQueryService {
     try {
       const apiDestinations = await this.existingGreClient.getDestinos(normalized);
       if (apiDestinations.length > 0) {
-        return { numeroDocumento: normalized, destinos: apiDestinations, warnings };
+        return { numeroDocumento: normalized, destinos: mergeManualDestinations(manualDestinations, apiDestinations), warnings };
       }
       warnings.push('La API existente no devolvio destinos.');
     } catch (error) {
@@ -601,12 +660,139 @@ export class GreFormularioQueryService {
     return { numeroDocumento: normalized, destinos, warnings };
   }
 
-  async searchDrivers(): Promise<DriverCatalogItem[]> {
-    const pool = createBizlinksPool(this.config);
+  async createDestino(input: {
+    numeroDocumento: string;
+    direccion: string;
+    ubigeo: string;
+    esPrincipal: boolean;
+    usuario?: string;
+  }) {
+    const numeroDocumento = input.numeroDocumento.trim().replace(/[\s-]+/g, '');
+    const direccion = normalizeHistoricalAddress(input.direccion);
+    const ubigeo = input.ubigeo.trim();
+    const usuario = input.usuario?.trim() || 'frontend-gre-fc';
+
+    if (!numeroDocumento) {
+      throw new Error('Seleccione un cliente/proveedor antes de guardar destino.');
+    }
+    if (!direccion) {
+      throw new Error('Ingrese la direccion de destino.');
+    }
+    if (!/^\d{6}$/.test(ubigeo)) {
+      throw new Error('El ubigeo debe tener 6 digitos.');
+    }
+
+    const pool = createGreFcPool(this.config);
     await pool.connect();
+    const transaction = new sql.Transaction(pool);
 
     try {
-      const result = await new sql.Request(pool).query<DriverRow>(`
+      await transaction.begin();
+
+      const tableCheck = await new sql.Request(transaction).query<{ existsTable: number }>(`
+        SELECT CASE WHEN OBJECT_ID(N'dbo.GRE_FC_DESTINO_MANUAL', N'U') IS NULL THEN 0 ELSE 1 END AS existsTable
+      `);
+      if (tableCheck.recordset[0]?.existsTable !== 1) {
+        throw new Error('Falta crear dbo.GRE_FC_DESTINO_MANUAL. Ejecute el script SQL manual incluido.');
+      }
+
+      if (input.esPrincipal) {
+        const clearRequest = new sql.Request(transaction);
+        clearRequest.input('numeroDocumento', sql.VarChar(20), numeroDocumento);
+        await clearRequest.query(`
+          UPDATE dbo.GRE_FC_DESTINO_MANUAL
+          SET esPrincipal = 0,
+              actualizadoEn = SYSUTCDATETIME(),
+              actualizadoPor = 'system'
+          WHERE numeroDocumentoDestinatario = @numeroDocumento
+            AND activo = 1
+        `);
+      }
+
+      const existingRequest = new sql.Request(transaction);
+      existingRequest.input('numeroDocumento', sql.VarChar(20), numeroDocumento);
+      existingRequest.input('direccion', sql.NVarChar(250), direccion);
+      existingRequest.input('ubigeo', sql.VarChar(6), ubigeo);
+      existingRequest.input('esPrincipal', sql.Bit, input.esPrincipal);
+      existingRequest.input('usuario', sql.NVarChar(100), usuario);
+
+      const existingResult = await existingRequest.query<ManualDestinationRow>(`
+        UPDATE dbo.GRE_FC_DESTINO_MANUAL
+        SET esPrincipal = CASE WHEN @esPrincipal = 1 THEN 1 ELSE esPrincipal END,
+            actualizadoEn = SYSUTCDATETIME(),
+            actualizadoPor = @usuario
+        OUTPUT
+          inserted.id,
+          inserted.numeroDocumentoDestinatario,
+          inserted.ubigeo,
+          inserted.direccion,
+          inserted.esPrincipal
+        WHERE numeroDocumentoDestinatario = @numeroDocumento
+          AND ubigeo = @ubigeo
+          AND direccion = @direccion
+          AND activo = 1
+      `);
+
+      if (existingResult.recordset[0]) {
+        await transaction.commit();
+        return normalizeManualDestination(existingResult.recordset[0]);
+      }
+
+      const insertRequest = new sql.Request(transaction);
+      insertRequest.input('numeroDocumento', sql.VarChar(20), numeroDocumento);
+      insertRequest.input('direccion', sql.NVarChar(250), direccion);
+      insertRequest.input('ubigeo', sql.VarChar(6), ubigeo);
+      insertRequest.input('esPrincipal', sql.Bit, input.esPrincipal);
+      insertRequest.input('usuario', sql.NVarChar(100), usuario);
+
+      const result = await insertRequest.query<ManualDestinationRow>(`
+        INSERT INTO dbo.GRE_FC_DESTINO_MANUAL
+          (numeroDocumentoDestinatario, ubigeo, direccion, esPrincipal, creadoPor, actualizadoPor)
+        OUTPUT
+          inserted.id,
+          inserted.numeroDocumentoDestinatario,
+          inserted.ubigeo,
+          inserted.direccion,
+          inserted.esPrincipal
+        VALUES
+          (@numeroDocumento, @ubigeo, @direccion, @esPrincipal, @usuario, @usuario)
+      `);
+
+      await transaction.commit();
+
+      const row = result.recordset[0];
+      if (!row) throw new Error('No se pudo registrar el destino.');
+
+      return normalizeManualDestination(row);
+    } catch (error) {
+      await transaction.rollback().catch(() => undefined);
+      throw error;
+    } finally {
+      await pool.close();
+    }
+  }
+
+  private async getManualDestinosSafe(numeroDocumento: string) {
+    const pool = createGreFcPool(this.config);
+    try {
+      await pool.connect();
+      return await getManualDestinations(pool, numeroDocumento);
+    } catch {
+      return [];
+    } finally {
+      await pool.close().catch(() => undefined);
+    }
+  }
+
+  async searchDrivers(): Promise<DriverCatalogItem[]> {
+    const bizlinksPool = createBizlinksPool(this.config);
+    const greFcPool = createGreFcPool(this.config);
+
+    try {
+      await bizlinksPool.connect();
+      await greFcPool.connect();
+
+      const result = await new sql.Request(bizlinksPool).query<DriverRow>(`
         SELECT
           NUMERODOCUMENTOCHOFER,
           TIPODOCUMENTOCHOFER,
@@ -618,7 +804,26 @@ export class GreFormularioQueryService {
         ORDER BY NOMBRE, APELLIDO, NUMERODOCUMENTOCHOFER
       `);
 
-      return result.recordset.map(normalizeDriver);
+      const manual = await getManualDriversSafe(greFcPool);
+      const byId = new Map<string, DriverCatalogItem>();
+
+      for (const driver of [...result.recordset.map(normalizeDriver), ...manual]) {
+        byId.set(driver.id, driver);
+      }
+
+      return [...byId.values()].sort(compareDrivers);
+    } finally {
+      await bizlinksPool.close();
+      await greFcPool.close();
+    }
+  }
+
+  async createManualDriver(input: ManualDriverInput, user?: string): Promise<DriverCatalogItem> {
+    const pool = createGreFcPool(this.config);
+    await pool.connect();
+
+    try {
+      return await createManualDriver(pool, input, user);
     } finally {
       await pool.close();
     }
@@ -839,11 +1044,6 @@ export class GreFormularioQueryService {
 
       if ((trace.recordset[0]?.total ?? 0) !== 1) return null;
 
-      const downloadedPdf = await getDownloadedPdf(bizlinksPool, this.config, '09', serieNumeroGuia);
-      if (downloadedPdf) {
-        return { kind: 'buffer', data: downloadedPdf };
-      }
-
       const pdfRequest = new sql.Request(bizlinksPool);
       pdfRequest.input('serieNumeroGuia', sql.VarChar(20), serieNumeroGuia);
 
@@ -857,7 +1057,8 @@ export class GreFormularioQueryService {
       const url = row?.bl_url_pdf?.trim();
 
       if (!url) {
-        return null;
+        const downloadedPdf = await getDownloadedPdf(bizlinksPool, this.config, '09', serieNumeroGuia);
+        return downloadedPdf ? { kind: 'buffer', data: downloadedPdf } : null;
       }
 
       return isAllowedBizlinksFileUrl(url) ? { kind: 'url', url } : null;
@@ -942,6 +1143,42 @@ export async function privateDriverExists(pool: sql.ConnectionPool | sql.Transac
   `);
 
   return (result.recordset[0]?.total ?? 0) === 1;
+}
+
+export async function manualPrivateDriverExists(pool: sql.ConnectionPool | sql.Transaction, driver: {
+  tipoDocumentoConductor: string;
+  numeroDocumentoConductor: string;
+  nombreConductor: string;
+  apellidoConductor: string;
+  numeroLicencia: string;
+  numeroPlacaVehiculoPrin: string;
+}) {
+  const request = createSqlRequest(pool);
+  request.input('tipoDocumento', sql.VarChar(2), driver.tipoDocumentoConductor.trim());
+  request.input('numeroDocumento', sql.VarChar(11), driver.numeroDocumentoConductor.trim());
+  request.input('nombres', sql.NVarChar(80), driver.nombreConductor.trim());
+  request.input('apellidos', sql.NVarChar(80), driver.apellidoConductor.trim());
+  request.input('licencia', sql.VarChar(20), driver.numeroLicencia.trim());
+  request.input('placa', sql.VarChar(8), driver.numeroPlacaVehiculoPrin.trim().toUpperCase());
+
+  try {
+    const result = await request.query<{ total: number }>(`
+      SELECT COUNT(1) AS total
+      FROM dbo.GRE_CHOFER_MANUAL
+      WHERE activo = 1
+        AND tipoDocumento = @tipoDocumento
+        AND numeroDocumento = @numeroDocumento
+        AND nombres = @nombres
+        AND apellidos = @apellidos
+        AND licencia = @licencia
+        AND placa = @placa
+    `);
+
+    return (result.recordset[0]?.total ?? 0) === 1;
+  } catch (error) {
+    if (isInvalidObjectError(error)) return false;
+    throw error;
+  }
 }
 
 function createSqlRequest(poolOrTransaction: sql.ConnectionPool | sql.Transaction) {
@@ -1367,6 +1604,59 @@ export function normalizeYchiDestinations(rows: YchiDestinationRow[]): GreDestin
   return [...byAddress.values()];
 }
 
+async function getManualDestinations(pool: sql.ConnectionPool, numeroDocumento: string): Promise<ManualGreDestino[]> {
+  const request = new sql.Request(pool);
+  request.input('numeroDocumento', sql.VarChar(20), numeroDocumento.replace(/[\s-]+/g, ''));
+
+  const tableCheck = await request.query<{ existsTable: number }>(`
+    SELECT CASE WHEN OBJECT_ID(N'dbo.GRE_FC_DESTINO_MANUAL', N'U') IS NULL THEN 0 ELSE 1 END AS existsTable
+  `);
+  if (tableCheck.recordset[0]?.existsTable !== 1) return [];
+
+  const result = await new sql.Request(pool)
+    .input('numeroDocumento', sql.VarChar(20), numeroDocumento.replace(/[\s-]+/g, ''))
+    .query<ManualDestinationRow>(`
+      SELECT TOP (50)
+        id,
+        numeroDocumentoDestinatario,
+        ubigeo,
+        direccion,
+        esPrincipal
+      FROM dbo.GRE_FC_DESTINO_MANUAL
+      WHERE numeroDocumentoDestinatario = @numeroDocumento
+        AND activo = 1
+      ORDER BY esPrincipal DESC, creadoEn DESC, id DESC
+    `);
+
+  return result.recordset.map(normalizeManualDestination);
+}
+
+function normalizeManualDestination(row: ManualDestinationRow): ManualGreDestino {
+  const ubigeo = row.ubigeo.trim();
+  const direccion = normalizeHistoricalAddress(row.direccion);
+  const codigoDestino = row.esPrincipal ? '1' : String(row.id);
+
+  return {
+    id: `MANUAL-${row.id}`,
+    codigoDestino,
+    ubigeo,
+    direccion,
+    textoOriginal: `${ubigeo}-${direccion}`,
+    esPrincipalManual: row.esPrincipal
+  };
+}
+
+export function mergeManualDestinations(manualDestinations: ManualGreDestino[], catalogDestinations: GreDestino[]) {
+  const principalManual = manualDestinations.filter((destination) => destination.esPrincipalManual);
+  const secondaryManual = manualDestinations.filter((destination) => !destination.esPrincipalManual);
+
+  return combineDestinations([
+    ...principalManual,
+    ...catalogDestinations,
+    ...secondaryManual
+  ]);
+}
+
 export function buildOtSearchTerms(input: string, currentDate = new Date()) {
   const trimmed = input.trim();
   const normalized = normalizeOtInput(trimmed);
@@ -1731,6 +2021,138 @@ function normalizeDriver(row: DriverRow): DriverCatalogItem {
     licencia,
     placa
   };
+}
+
+async function getManualDriversSafe(pool: sql.ConnectionPool): Promise<DriverCatalogItem[]> {
+  try {
+    const result = await new sql.Request(pool).query<{
+      tipoDocumento: string;
+      numeroDocumento: string;
+      nombres: string;
+      apellidos: string;
+      licencia: string;
+      placa: string;
+    }>(`
+      SELECT
+        tipoDocumento,
+        numeroDocumento,
+        nombres,
+        apellidos,
+        licencia,
+        placa
+      FROM dbo.GRE_CHOFER_MANUAL
+      WHERE activo = 1
+      ORDER BY nombres, apellidos, numeroDocumento, placa
+    `);
+
+    return result.recordset.map((row) => normalizeManualDriver(row));
+  } catch (error) {
+    if (isInvalidObjectError(error)) return [];
+    throw error;
+  }
+}
+
+async function createManualDriver(pool: sql.ConnectionPool, input: ManualDriverInput, user?: string): Promise<DriverCatalogItem> {
+  const normalized = normalizeManualDriverInput(input);
+  const request = new sql.Request(pool);
+
+  request.input('tipoDocumento', sql.VarChar(2), normalized.tipoDocumento);
+  request.input('numeroDocumento', sql.VarChar(11), normalized.numeroDocumento);
+  request.input('nombres', sql.NVarChar(80), normalized.nombres);
+  request.input('apellidos', sql.NVarChar(80), normalized.apellidos);
+  request.input('licencia', sql.VarChar(20), normalized.licencia);
+  request.input('placa', sql.VarChar(8), normalized.placa);
+  request.input('usuario', sql.NVarChar(128), user ?? null);
+
+  try {
+    const result = await request.query<{
+      tipoDocumento: string;
+      numeroDocumento: string;
+      nombres: string;
+      apellidos: string;
+      licencia: string;
+      placa: string;
+    }>(`
+      INSERT INTO dbo.GRE_CHOFER_MANUAL
+        (tipoDocumento, numeroDocumento, nombres, apellidos, licencia, placa, creadoPor)
+      OUTPUT
+        inserted.tipoDocumento,
+        inserted.numeroDocumento,
+        inserted.nombres,
+        inserted.apellidos,
+        inserted.licencia,
+        inserted.placa
+      VALUES
+        (@tipoDocumento, @numeroDocumento, @nombres, @apellidos, @licencia, @placa, @usuario);
+    `);
+
+    const row = result.recordset[0];
+    if (!row) throw new Error('No se pudo registrar el chofer.');
+
+    return normalizeManualDriver(row);
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      throw new Error('El chofer ya existe con esa licencia y placa.');
+    }
+    throw error;
+  }
+}
+
+function normalizeManualDriverInput(input: ManualDriverInput) {
+  const tipoDocumento = input.tipoDocumento.trim() || '1';
+  const numeroDocumento = input.numeroDocumento.replace(/\D/g, '');
+  const nombres = input.nombres.trim().toUpperCase();
+  const apellidos = input.apellidos.trim().toUpperCase();
+  const licencia = input.licencia.trim().toUpperCase();
+  const placa = input.placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  if (tipoDocumento !== '1') throw new Error('El tipo de documento del chofer debe ser DNI.');
+  if (!/^\d{8,11}$/.test(numeroDocumento)) throw new Error('El DNI del chofer debe tener al menos 8 digitos.');
+  if (!nombres) throw new Error('Ingrese nombres del chofer.');
+  if (!apellidos) throw new Error('Ingrese apellidos del chofer.');
+  if (!licencia) throw new Error('Ingrese licencia del chofer.');
+  if (!/^[A-Z0-9]{5,8}$/.test(placa)) throw new Error('La placa debe tener entre 5 y 8 caracteres.');
+
+  return { tipoDocumento, numeroDocumento, nombres, apellidos, licencia, placa };
+}
+
+function normalizeManualDriver(row: {
+  tipoDocumento: string;
+  numeroDocumento: string;
+  nombres: string;
+  apellidos: string;
+  licencia: string;
+  placa: string;
+}): DriverCatalogItem {
+  const tipoDocumento = row.tipoDocumento.trim();
+  const numeroDocumento = row.numeroDocumento.trim();
+  const nombres = row.nombres.trim();
+  const apellidos = row.apellidos.trim();
+  const licencia = row.licencia.trim();
+  const placa = row.placa.trim();
+
+  return {
+    id: `${tipoDocumento}-${numeroDocumento}-${licencia}-${placa}`,
+    tipoDocumento,
+    numeroDocumento,
+    nombres,
+    apellidos,
+    licencia,
+    placa
+  };
+}
+
+function compareDrivers(a: DriverCatalogItem, b: DriverCatalogItem) {
+  return `${a.nombres} ${a.apellidos} ${a.numeroDocumento} ${a.placa}`
+    .localeCompare(`${b.nombres} ${b.apellidos} ${b.numeroDocumento} ${b.placa}`, 'es');
+}
+
+function isInvalidObjectError(error: unknown) {
+  return error instanceof Error && /invalid object name|nombre de objeto no v[aá]lido/i.test(error.message);
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Error && /UQ_GRE_CHOFER_MANUAL|unique|duplicate|duplicad/i.test(error.message);
 }
 
 export function parsePhysicalGuideInput(input: string): { serie: string; numero: string } | null {

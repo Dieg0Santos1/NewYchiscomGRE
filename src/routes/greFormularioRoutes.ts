@@ -80,11 +80,90 @@ export function greFormularioRoutes(
     }
   });
 
+  router.post('/api/catalogos/destinos/:numeroDocumento', async (req, res, next) => {
+    try {
+      const numeroDocumento = String(req.params.numeroDocumento ?? '').trim();
+      const direccion = String(req.body?.direccion ?? '').trim();
+      const ubigeo = String(req.body?.ubigeo ?? '').trim();
+      const esPrincipal = Boolean(req.body?.esPrincipal);
+      const usuario = String(req.header('X-User') ?? 'frontend-gre-fc').trim();
+
+      if (!numeroDocumento) {
+        res.status(400).json({
+          error: 'NUMERO_DOCUMENTO_REQUIRED',
+          message: 'Seleccione un cliente/proveedor antes de guardar destino.'
+        });
+        return;
+      }
+      if (!direccion) {
+        res.status(400).json({
+          error: 'DIRECCION_REQUIRED',
+          message: 'Ingrese la direccion de destino.'
+        });
+        return;
+      }
+      if (!/^\d{6}$/.test(ubigeo)) {
+        res.status(400).json({
+          error: 'UBIGEO_INVALID',
+          message: 'El ubigeo debe tener 6 digitos.'
+        });
+        return;
+      }
+
+      res.status(201).json({
+        ok: true,
+        destino: await queryService.createDestino({
+          numeroDocumento,
+          direccion,
+          ubigeo,
+          esPrincipal,
+          usuario
+        })
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/api/catalogos/choferes', async (_req, res, next) => {
     try {
       res.status(200).json({
         ok: true,
         choferes: await queryService.searchDrivers()
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/api/catalogos/choferes', async (req, res, next) => {
+    try {
+      const tipoDocumento = String(req.body?.tipoDocumento ?? '1').trim();
+      const numeroDocumento = String(req.body?.numeroDocumento ?? '').replace(/\D/g, '');
+      const nombres = String(req.body?.nombres ?? '').trim();
+      const apellidos = String(req.body?.apellidos ?? '').trim();
+      const licencia = String(req.body?.licencia ?? '').trim();
+      const placa = String(req.body?.placa ?? '').trim();
+
+      if (tipoDocumento !== '1') {
+        res.status(400).json({ error: 'TIPO_DOCUMENTO_INVALID', message: 'El chofer debe registrarse con DNI.' });
+        return;
+      }
+      if (!/^\d{8,11}$/.test(numeroDocumento)) {
+        res.status(400).json({ error: 'DNI_INVALID', message: 'El DNI del chofer debe tener al menos 8 digitos.' });
+        return;
+      }
+      if (!nombres || !apellidos || !licencia || !placa) {
+        res.status(400).json({ error: 'DRIVER_REQUIRED', message: 'Complete nombres, apellidos, licencia y placa.' });
+        return;
+      }
+
+      res.status(201).json({
+        ok: true,
+        chofer: await queryService.createManualDriver(
+          { tipoDocumento, numeroDocumento, nombres, apellidos, licencia, placa },
+          req.get('X-User') ?? req.ip
+        )
       });
     } catch (error) {
       next(error);

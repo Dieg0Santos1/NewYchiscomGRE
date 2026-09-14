@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildOtSearchTerms, normalizeYchiDestinations, parsePhysicalGuideInput } from '../services/greFormularioQueryService.js';
+import { buildOtSearchTerms, mergeManualDestinations, normalizeYchiDestinations, parsePhysicalGuideInput } from '../services/greFormularioQueryService.js';
 
 const referenceDate = new Date('2026-07-24T12:00:00-05:00');
 
@@ -101,5 +101,59 @@ describe('gre formularios YCHIDB3 destinations', () => {
       direccion: 'SIN UBIGEO'
     });
     expect(destinos[1]?.codigoDestino).toBe('2');
+  });
+});
+
+describe('gre formularios manual destinations ordering', () => {
+  it('mantiene un destino manual no principal despues del catalogo existente', () => {
+    const destinos = mergeManualDestinations([
+      {
+        id: 'MANUAL-10',
+        codigoDestino: '10',
+        ubigeo: '150101',
+        direccion: 'DIRECCION NUEVA NO PRINCIPAL',
+        textoOriginal: '150101-DIRECCION NUEVA NO PRINCIPAL',
+        esPrincipalManual: false
+      }
+    ], [
+      {
+        id: 'YCHIDB3-1-PRINCIPAL-150101',
+        codigoDestino: '1',
+        ubigeo: '150101',
+        direccion: 'DIRECCION EXISTENTE',
+        textoOriginal: '150101-DIRECCION EXISTENTE'
+      }
+    ]);
+
+    expect(destinos.map((destino) => destino.id)).toEqual([
+      'YCHIDB3-1-PRINCIPAL-150101',
+      'MANUAL-10'
+    ]);
+  });
+
+  it('antepone un destino manual principal al catalogo existente', () => {
+    const destinos = mergeManualDestinations([
+      {
+        id: 'MANUAL-11',
+        codigoDestino: '1',
+        ubigeo: '150101',
+        direccion: 'DIRECCION NUEVA PRINCIPAL',
+        textoOriginal: '150101-DIRECCION NUEVA PRINCIPAL',
+        esPrincipalManual: true
+      }
+    ], [
+      {
+        id: 'YCHIDB3-1-PRINCIPAL-150101',
+        codigoDestino: '1',
+        ubigeo: '150101',
+        direccion: 'DIRECCION EXISTENTE',
+        textoOriginal: '150101-DIRECCION EXISTENTE'
+      }
+    ]);
+
+    expect(destinos.map((destino) => destino.id)).toEqual([
+      'MANUAL-11',
+      'YCHIDB3-1-PRINCIPAL-150101'
+    ]);
   });
 });

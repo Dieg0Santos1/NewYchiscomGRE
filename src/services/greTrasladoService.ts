@@ -7,7 +7,7 @@ import { mapGreInputToPayload } from '../mappers/grePayloadMapper.js';
 import { toSpeDespatchProcedurePlan, type StoredProcedureParam } from '../mappers/speDespatchProcedureMapper.js';
 import type { GreTrasladoInputDto } from '../schemas/greTrasladoInputSchema.js';
 import { isEligibleForManualSunatMessage } from './greFormularioManualSunatService.js';
-import { privateDriverExists } from './greFormularioQueryService.js';
+import { manualPrivateDriverExists, privateDriverExists } from './greFormularioQueryService.js';
 import { sanitizeValue } from '../utils/sanitize.js';
 
 const HEADER_TABLE = 'dbo.SPE_DESPATCH';
@@ -305,7 +305,7 @@ export class DirectDbGreTrasladoService implements GreTrasladoService {
       bizlinksTransaction = new sql.Transaction(bizlinksPool);
       await bizlinksTransaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
       await acquireAppLock(bizlinksTransaction, 'GRE_TRASLADO_T002_CORRELATIVO');
-      await assertPrivateDriverStillExists(bizlinksTransaction, declaredInput);
+      await assertPrivateDriverStillExists(bizlinksTransaction, greFcTransaction, declaredInput);
 
       if (generatedSerieNumeroGuia) {
         const existingBizlinks = await queryInsertedStatus(bizlinksTransaction, generatedSerieNumeroGuia);
@@ -337,15 +337,7 @@ export class DirectDbGreTrasladoService implements GreTrasladoService {
         procedurePlan: sanitizeValue(toSpeDespatchProcedurePlan(payload))
       });
 
-      await executeOfficialGreProcedures(bizlinksTransaction, payload);
-      const preparedStatus = await queryProcedureExecutionStatus(bizlinksTransaction, generatedSerieNumeroGuia);
-      assertPreparedForActivation(preparedStatus, generatedSerieNumeroGuia, payload.spE_DESPATCH_ITEM.length);
-
-      await executeStoredProcedure(bizlinksTransaction, 'dbo.USP_EnvioGuia', toSpeDespatchProcedurePlan(payload).USP_EnvioGuia);
-      const activatedStatus = await queryProcedureExecutionStatus(bizlinksTransaction, generatedSerieNumeroGuia);
-      if (activatedStatus.header?.bl_estadoRegistro !== 'A') {
-        throw new Error(`USP_ENVIOGUIA no dejo ${generatedSerieNumeroGuia} en A. Estado: ${String(activatedStatus.header?.bl_estadoRegistro ?? 'NULL')}`);
-      }
+      const activatedStatus = await executePreparedGreProceduresForActivation(bizlinksTransaction, payload);
 
       await bizlinksTransaction.commit();
       await markInsertedBizlinks(greFcTransaction, prepared, generatedSerieNumeroGuia, payload.spE_DESPATCH_ITEM.length, activatedStatus, true);
@@ -384,19 +376,25 @@ export class DirectDbGreTrasladoService implements GreTrasladoService {
   }
 }
 
-async function assertPrivateDriverStillExists(transaction: sql.Transaction, input: GreTrasladoInputDto) {
+async function assertPrivateDriverStillExists(
+  bizlinksTransaction: sql.Transaction,
+  greFcTransaction: sql.Transaction,
+  input: GreTrasladoInputDto
+) {
   if (input.traslado.modalidadTraslado !== '02') return;
   if (!input.conductor || !input.vehiculo) {
     throw new Error('Los datos del chofer y vehiculo son obligatorios para transporte privado');
   }
 
-  const exists = await privateDriverExists(transaction, {
+  const driver = {
     ...input.conductor,
     numeroPlacaVehiculoPrin: input.vehiculo.numeroPlacaVehiculoPrin
-  });
+  };
+  const exists = await privateDriverExists(bizlinksTransaction, driver)
+    || await manualPrivateDriverExists(greFcTransaction, driver);
 
   if (!exists) {
-    throw new Error('El chofer privado enviado no existe o no coincide con AAA_CHOFER');
+    throw new Error('El chofer privado enviado no existe o no coincide con el catalogo de choferes');
   }
 }
 
@@ -789,6 +787,21 @@ async function executeOfficialGreProcedures(transaction: sql.Transaction, payloa
   }
 }
 
+export async function executePreparedGreProceduresForActivation(transaction: sql.Transaction, payload: GrePayload) {
+  await executeOfficialGreProcedures(transaction, payload);
+  await normalizePublicTransportHeaderForSunat(transaction, payload);
+  const preparedStatus = await queryProcedureExecutionStatus(transaction, payload.serieNumeroGuia);
+  assertPreparedForActivation(preparedStatus, payload.serieNumeroGuia, payload.spE_DESPATCH_ITEM.length);
+
+  await executeStoredProcedure(transaction, 'dbo.USP_EnvioGuia', toSpeDespatchProcedurePlan(payload).USP_EnvioGuia);
+  const activatedStatus = await queryProcedureExecutionStatus(transaction, payload.serieNumeroGuia);
+  if (activatedStatus.header?.bl_estadoRegistro !== 'A') {
+    throw new Error(`USP_ENVIOGUIA no dejo ${payload.serieNumeroGuia} en A. Estado: ${String(activatedStatus.header?.bl_estadoRegistro ?? 'NULL')}`);
+  }
+
+  return activatedStatus;
+}
+
 async function executeStoredProcedure(transaction: sql.Transaction, procedureName: string, params: StoredProcedureParam[]) {
   const request = new sql.Request(transaction);
 
@@ -797,6 +810,30 @@ async function executeStoredProcedure(transaction: sql.Transaction, procedureNam
   }
 
   await request.execute(procedureName);
+}
+
+export async function normalizePublicTransportHeaderForSunat(transaction: sql.Transaction, payload: GrePayload) {
+  if (payload.modalidadTraslado !== '01') return;
+
+  const request = new sql.Request(transaction);
+  request.input('tipoDocumentoRemitente', sql.NVarChar(2), payload.tipoDocumentoRemitente);
+  request.input('numeroDocumentoRemitente', sql.NVarChar(11), payload.numeroDocumentoRemitente);
+  request.input('serieNumeroGuia', sql.NVarChar(20), payload.serieNumeroGuia);
+  request.input('tipoDocumentoGuia', sql.NVarChar(2), payload.tipoDocumentoGuia);
+  request.input('fechaEntregaBienes', sql.NVarChar(10), payload.fechaEntregaBienes);
+
+  await request.query(`
+    UPDATE ${HEADER_TABLE}
+    SET fechaEntregaBienes = CASE
+          WHEN NULLIF(LTRIM(RTRIM(ISNULL(fechaEntregaBienes, ''))), '') IS NULL THEN @fechaEntregaBienes
+          ELSE fechaEntregaBienes
+        END
+    WHERE tipoDocumentoRemitente = @tipoDocumentoRemitente
+      AND numeroDocumentoRemitente = @numeroDocumentoRemitente
+      AND serieNumeroGuia = @serieNumeroGuia
+      AND tipoDocumentoGuia = @tipoDocumentoGuia
+      AND modalidadTraslado = '01';
+  `);
 }
 
 async function queryProcedureExecutionStatus(

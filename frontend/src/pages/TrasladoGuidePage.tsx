@@ -32,6 +32,14 @@ type DeclarationFeedback = {
   detail: string;
 };
 
+type DriverFormState = {
+  numeroDocumento: string;
+  nombres: string;
+  apellidos: string;
+  licencia: string;
+  placa: string;
+};
+
 const trasladoMotivos: Array<{ codigo: TrasladoMotivoCode; descripcion: string; label: string }> =
   SUNAT_GRE_TRANSFER_REASONS.map((reason) => ({
     codigo: reason.code,
@@ -93,6 +101,16 @@ function newItem(index: number): TrasladoItem {
   };
 }
 
+function defaultDriverForm(): DriverFormState {
+  return {
+    numeroDocumento: '',
+    nombres: '',
+    apellidos: '',
+    licencia: '',
+    placa: ''
+  };
+}
+
 export function TrasladoGuidePage() {
   const [form, setForm] = useState<TrasladoFormState>(() => defaultState());
   const [cliente, setCliente] = useState<FcFacturaCliente | null>(null);
@@ -112,6 +130,18 @@ export function TrasladoGuidePage() {
   const [operationId, setOperationId] = useState('');
   const [successSerie, setSuccessSerie] = useState('');
   const [declarationFeedback, setDeclarationFeedback] = useState<DeclarationFeedback | null>(null);
+  const [destinationModalOpen, setDestinationModalOpen] = useState(false);
+  const [destinationForm, setDestinationForm] = useState({
+    direccion: '',
+    ubigeo: '',
+    esPrincipal: true
+  });
+  const [destinationSaveMessage, setDestinationSaveMessage] = useState('');
+  const [destinationSaving, setDestinationSaving] = useState(false);
+  const [driverModalOpen, setDriverModalOpen] = useState(false);
+  const [driverForm, setDriverForm] = useState<DriverFormState>(() => defaultDriverForm());
+  const [driverSaveMessage, setDriverSaveMessage] = useState('');
+  const [driverSaving, setDriverSaving] = useState(false);
 
   const payload = useMemo(() => toTrasladoInputDto(form), [form]);
   const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
@@ -299,6 +329,69 @@ export function TrasladoGuidePage() {
     updateField(field, value);
   }
 
+  function openDestinationModal() {
+    setDestinationSaveMessage('');
+    setDestinationForm({
+      direccion: '',
+      ubigeo: '',
+      esPrincipal: true
+    });
+    setDestinationModalOpen(true);
+  }
+
+  function closeDestinationModal() {
+    if (destinationSaving) return;
+    setDestinationModalOpen(false);
+    setDestinationSaveMessage('');
+  }
+
+  async function saveDestination() {
+    const numeroDocumento = form.numeroDocumentoDestinatario.trim();
+    const direccion = destinationForm.direccion.trim();
+    const ubigeo = destinationForm.ubigeo.trim();
+
+    setDestinationSaveMessage('');
+
+    if (!numeroDocumento) {
+      setDestinationSaveMessage('Seleccione un cliente/proveedor antes de guardar destino.');
+      return;
+    }
+    if (!direccion) {
+      setDestinationSaveMessage('Ingrese la direccion de destino.');
+      return;
+    }
+    if (!/^\d{6}$/.test(ubigeo)) {
+      setDestinationSaveMessage('El ubigeo debe tener 6 digitos.');
+      return;
+    }
+
+    setDestinationSaving(true);
+    try {
+      const created = await greFormularioService.createDestino(numeroDocumento, {
+        direccion,
+        ubigeo,
+        esPrincipal: destinationForm.esPrincipal
+      });
+
+      invalidatePreview();
+      setDestinos((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      setSelectedDestinoId(created.id);
+      setForm((current) => ({
+        ...current,
+        direccionPtoLlegada: created.direccion,
+        ubigeoPtoLlegada: created.ubigeo ?? '',
+        codigoPtoLlegada: created.codigoDestino ?? '1'
+      }));
+      setMessage(`Destino registrado: ${created.ubigeo} - ${created.direccion}.`);
+      setDestinationModalOpen(false);
+      setDestinationSaveMessage('');
+    } catch (error) {
+      setDestinationSaveMessage(error instanceof Error ? error.message : 'No se pudo guardar el destino.');
+    } finally {
+      setDestinationSaving(false);
+    }
+  }
+
   function selectMotivo(codigo: TrasladoMotivoCode) {
     const motivo = trasladoMotivos.find((item) => item.codigo === codigo) ?? trasladoMotivos[0]!;
     invalidatePreview();
@@ -340,6 +433,70 @@ export function TrasladoGuidePage() {
       numeroLicencia: driver?.licencia ?? '',
       numeroPlacaVehiculoPrin: plates.length === 1 ? plates[0]! : ''
     }));
+  }
+
+  function openDriverModal() {
+    setDriverForm(defaultDriverForm());
+    setDriverSaveMessage('');
+    setDriverModalOpen(true);
+  }
+
+  function closeDriverModal() {
+    if (driverSaving) return;
+    setDriverModalOpen(false);
+    setDriverSaveMessage('');
+  }
+
+  async function saveDriver() {
+    const numeroDocumento = driverForm.numeroDocumento.replace(/\D/g, '');
+    const nombres = driverForm.nombres.trim().toUpperCase();
+    const apellidos = driverForm.apellidos.trim().toUpperCase();
+    const licencia = driverForm.licencia.trim().toUpperCase();
+    const placa = driverForm.placa.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    setDriverSaveMessage('');
+
+    if (!/^\d{8,11}$/.test(numeroDocumento)) {
+      setDriverSaveMessage('El DNI debe tener al menos 8 digitos.');
+      return;
+    }
+    if (!nombres || !apellidos || !licencia || !placa) {
+      setDriverSaveMessage('Complete nombres, apellidos, licencia y placa.');
+      return;
+    }
+
+    setDriverSaving(true);
+    try {
+      const created = await driverService.createPrivateDriver({
+        tipoDocumento: '1',
+        numeroDocumento,
+        nombres,
+        apellidos,
+        licencia,
+        placa
+      });
+      const nextDrivers = [created, ...drivers.filter((item) => driverIdentity(item) !== driverIdentity(created))];
+
+      invalidatePreview();
+      setDrivers(nextDrivers);
+      setForm((current) => ({
+        ...current,
+        selectedDriverId: driverIdentity(created),
+        tipoDocumentoConductor: created.tipoDocumento,
+        numeroDocumentoConductor: created.numeroDocumento,
+        nombreConductor: created.nombres,
+        apellidoConductor: created.apellidos,
+        numeroLicencia: created.licencia,
+        numeroPlacaVehiculoPrin: created.placa
+      }));
+      setMessage(`Chofer registrado: ${created.nombres} ${created.apellidos}.`);
+      setDriverModalOpen(false);
+      setDriverSaveMessage('');
+    } catch (error) {
+      setDriverSaveMessage(error instanceof Error ? error.message : 'No se pudo guardar el chofer.');
+    } finally {
+      setDriverSaving(false);
+    }
   }
 
   function updateItem(itemId: string, patch: Partial<TrasladoItem>) {
@@ -554,6 +711,15 @@ export function TrasladoGuidePage() {
             ) : (
               <input value={form.direccionPtoLlegada} maxLength={100} onChange={(event) => updateDestinationField('direccionPtoLlegada', event.target.value)} placeholder="Direccion de llegada" />
             )}
+            <button
+              type="button"
+              className="icon-button destination-add-button"
+              onClick={openDestinationModal}
+              disabled={!form.numeroDocumentoDestinatario.trim()}
+              title="Agregar destino"
+            >
+              <Plus size={18} />
+            </button>
             <input value={form.ubigeoPtoLlegada} maxLength={6} onChange={(event) => updateDestinationField('ubigeoPtoLlegada', event.target.value.replace(/\D/g, ''))} placeholder="Ubigeo" />
           </div>
         </FormField>
@@ -593,14 +759,19 @@ export function TrasladoGuidePage() {
       {form.modalidadTraslado === '02' ? (
         <div className="driver-row traslado-driver-row">
           <FormField label="CHOFER" required>
-            <select value={form.selectedDriverId} onChange={(event) => selectDriver(event.target.value)}>
-              <option value="">Seleccione chofer</option>
-              {selectableDrivers.map((driver) => (
-                <option value={driverIdentity(driver)} key={driverIdentity(driver)}>
-                  {driver.nombres} {driver.apellidos} - DNI {driver.numeroDocumento} - Lic. {driver.licencia}
-                </option>
-              ))}
-            </select>
+            <div className="driver-picker">
+              <select value={form.selectedDriverId} onChange={(event) => selectDriver(event.target.value)}>
+                <option value="">Seleccione chofer</option>
+                {selectableDrivers.map((driver) => (
+                  <option value={driverIdentity(driver)} key={driverIdentity(driver)}>
+                    {driver.nombres} {driver.apellidos} - DNI {driver.numeroDocumento} - Lic. {driver.licencia}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="icon-button destination-add-button" onClick={openDriverModal} title="Registrar nuevo chofer">
+                <Plus size={18} />
+              </button>
+            </div>
           </FormField>
           <FormField label="LICENCIA">
             <input className="auto-field" value={form.numeroLicencia} readOnly />
@@ -721,6 +892,135 @@ export function TrasladoGuidePage() {
             setPreviewOpen(false);
           }}
         />
+      )}
+
+      {destinationModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="destination-modal">
+            <div className="modal-titlebar">
+              <div>
+                <h2>Nuevo destino</h2>
+                <p>{form.numeroDocumentoDestinatario} - {form.razonSocialDestinatario}</p>
+              </div>
+              <button type="button" className="modal-close" onClick={closeDestinationModal} aria-label="Cerrar">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="destination-modal-body">
+              <FormField label="DIRECCION" required>
+                <input
+                  value={destinationForm.direccion}
+                  onChange={(event) => setDestinationForm((current) => ({ ...current, direccion: event.target.value }))}
+                  maxLength={250}
+                  autoFocus
+                  placeholder="Direccion de llegada"
+                />
+              </FormField>
+              <FormField label="UBIGEO" required>
+                <input
+                  value={destinationForm.ubigeo}
+                  maxLength={6}
+                  onChange={(event) => setDestinationForm((current) => ({
+                    ...current,
+                    ubigeo: event.target.value.replace(/\D/g, '').slice(0, 6)
+                  }))}
+                  placeholder="6 digitos"
+                />
+              </FormField>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={destinationForm.esPrincipal}
+                  onChange={(event) => setDestinationForm((current) => ({ ...current, esPrincipal: event.target.checked }))}
+                />
+                Marcar como principal
+              </label>
+              {destinationSaveMessage && <div className="inline-message error-message">{destinationSaveMessage}</div>}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={closeDestinationModal} disabled={destinationSaving}>
+                Cancelar
+              </button>
+              <button type="button" className="primary-button" onClick={() => void saveDestination()} disabled={destinationSaving}>
+                {destinationSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {driverModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="destination-modal">
+            <div className="modal-titlebar">
+              <div>
+                <h2>Nuevo chofer</h2>
+                <p>Se guardara para futuras guias de traslado privado.</p>
+              </div>
+              <button type="button" className="modal-close" onClick={closeDriverModal} aria-label="Cerrar">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="destination-modal-body">
+              <FormField label="DNI" required>
+                <input
+                  value={driverForm.numeroDocumento}
+                  maxLength={11}
+                  onChange={(event) => setDriverForm((current) => ({
+                    ...current,
+                    numeroDocumento: event.target.value.replace(/\D/g, '').slice(0, 11)
+                  }))}
+                  autoFocus
+                  placeholder="DNI del chofer"
+                />
+              </FormField>
+              <FormField label="NOMBRES" required>
+                <input
+                  value={driverForm.nombres}
+                  maxLength={80}
+                  onChange={(event) => setDriverForm((current) => ({ ...current, nombres: event.target.value.toUpperCase() }))}
+                  placeholder="Nombres"
+                />
+              </FormField>
+              <FormField label="APELLIDOS" required>
+                <input
+                  value={driverForm.apellidos}
+                  maxLength={80}
+                  onChange={(event) => setDriverForm((current) => ({ ...current, apellidos: event.target.value.toUpperCase() }))}
+                  placeholder="Apellidos"
+                />
+              </FormField>
+              <FormField label="LICENCIA" required>
+                <input
+                  value={driverForm.licencia}
+                  maxLength={20}
+                  onChange={(event) => setDriverForm((current) => ({ ...current, licencia: event.target.value.toUpperCase() }))}
+                  placeholder="Q12345678"
+                />
+              </FormField>
+              <FormField label="PLACA" required>
+                <input
+                  value={driverForm.placa}
+                  maxLength={8}
+                  onChange={(event) => setDriverForm((current) => ({
+                    ...current,
+                    placa: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+                  }))}
+                  placeholder="ABC123"
+                />
+              </FormField>
+              {driverSaveMessage && <div className="inline-message error-message">{driverSaveMessage}</div>}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={closeDriverModal} disabled={driverSaving}>
+                Cancelar
+              </button>
+              <button type="button" className="primary-button" onClick={() => void saveDriver()} disabled={driverSaving}>
+                {driverSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {successSerie && (

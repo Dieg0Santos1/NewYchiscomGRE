@@ -36,6 +36,17 @@ type DestinosResponse = {
   destinos: RecipientAddress[];
 };
 
+type CreateDestinoResponse = {
+  ok: boolean;
+  destino: RecipientAddress;
+};
+
+export type CreateDestinoRequest = {
+  direccion: string;
+  ubigeo: string;
+  esPrincipal: boolean;
+};
+
 type NextSerieResponse = {
   ok: boolean;
   serie: GreSerie;
@@ -95,6 +106,15 @@ export const greFormularioService = {
   async getDestinos(numeroDocumento: string) {
     const response = await apiGet<DestinosResponse>(`/api/catalogos/destinos/${encodeURIComponent(numeroDocumento)}`);
     return response.destinos;
+  },
+
+  async createDestino(numeroDocumento: string, payload: CreateDestinoRequest) {
+    const response = await apiPost<CreateDestinoResponse>(
+      `/api/catalogos/destinos/${encodeURIComponent(numeroDocumento)}`,
+      payload,
+      { 'X-User': 'frontend-gre-fc' }
+    );
+    return response.destino;
   },
 
   setManualSunatAcceptedMessage(serieNumeroGuia: string) {

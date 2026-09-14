@@ -73,7 +73,7 @@ export function toUspCabeceraGuiaParams(payload: GrePayload): StoredProcedurePar
     { name: 'codigopuerto', value: null },
     { name: 'descripcionpuerto', value: null },
     { name: 'codigoPtoPartida', value: emptyToNull(payload.codigoPtoPartida) },
-    { name: 'codigoPtollegada', value: valueUnusedByPrivateTransport(payload.modalidadTraslado, payload.codigoPtollegada) },
+    { name: 'codigoPtollegada', value: null },
     { name: 'numeroDocumentoPtoPartida', value: null },
     { name: 'numeroDocumentoPtoLlegada', value: null }
   ];
