@@ -39,6 +39,7 @@ export type FcLegacyClient = {
   ruc: string;
   direccion: string;
   idDistrito: number;
+  distritoNombre: string;
   otsPendientes: number;
   cantidadPendiente: number;
 };
@@ -85,6 +86,9 @@ export type FcLegacyReception = {
   descripcion: string;
   direccion: string;
   idDistrito: number;
+  distritoNombre: string;
+  idEmpleado: number | null;
+  vendedorNombre: string;
 };
 
 export type FcLegacyGuideItem = {

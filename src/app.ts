@@ -21,6 +21,7 @@ import { authRoutes } from './routes/authRoutes.js';
 import { adminAccessRoutes } from './routes/adminAccessRoutes.js';
 import { sanitizeValue } from './utils/sanitize.js';
 import type { FcFacturaService } from './services/fcFacturaService.js';
+import type { FlexoService } from './services/flexoService.js';
 import type { FlexoFacturaService } from './services/flexoFacturaService.js';
 import type { GreFormularioDeclararTestService } from './services/greFormularioDeclararTestService.js';
 import type { GreFormularioManualSunatService } from './services/greFormularioManualSunatService.js';
@@ -36,6 +37,7 @@ export function createApp(options?: {
   existingGreClient?: ExistingGreClient;
   fcFacturaService?: FcFacturaService;
   fcLegacyWorkflowService?: FcLegacyWorkflowRouteService;
+  flexoService?: FlexoService;
   flexoFacturaService?: FlexoFacturaService;
   greFormularioDeclararTestService?: GreFormularioDeclararTestService;
   greFormularioManualSunatService?: GreFormularioManualSunatService;
@@ -76,7 +78,7 @@ export function createApp(options?: {
   app.use(adminAccessRoutes(authenticationService));
   app.use(authorizeApiModules(config));
   app.use(greRoutes(config, existingGreClient));
-  app.use(flexoRoutes(config));
+  app.use(flexoRoutes(config, options?.flexoService));
   app.use(greFormularioRoutes(
     config,
     options?.greFormularioDeclararTestService,

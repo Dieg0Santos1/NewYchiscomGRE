@@ -49,6 +49,38 @@ export function flexoRoutes(config: AppConfig, service: FlexoService = new Direc
     }
   });
 
+  router.get('/api/flexo/ajustes/empaques', async (req, res, next) => {
+    try {
+      const q = String(req.query.q ?? '');
+
+      res.status(200).json({
+        ok: true,
+        empaques: await service.searchEmpaqueAdjustments(q)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch('/api/flexo/ajustes/empaques/:codigoEmpaque/:codigoProducto/unidad-medida', async (req, res, next) => {
+    try {
+      const codigoEmpaque = Number(req.params.codigoEmpaque);
+      const codigoProducto = String(req.params.codigoProducto ?? '');
+      const unidadMedida = String(req.body?.unidadMedida ?? '');
+
+      res.status(200).json({
+        ok: true,
+        ...await service.updateEmpaqueUnidad({
+          codigoEmpaque,
+          codigoProducto,
+          unidadMedida
+        })
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/api/flexo/guias/next-serie', async (req, res, next) => {
     try {
       const serie = String(req.query.serie ?? 'T003').trim().toUpperCase();

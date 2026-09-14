@@ -8,6 +8,7 @@ coverage/
 !.env.example
 npm-debug.log*
 *.log
+logs/
 *.local
 config/auth-users.json
 .gre-test/

@@ -25,6 +25,7 @@ export type FcLegacyClientRow = {
   ruc: string;
   direccion: string;
   idDistrito: number;
+  distritoNombre: string;
   otsPendientes: number;
   cantidadPendiente: number;
 };
@@ -79,6 +80,9 @@ export type FcReceptionRow = {
   descripcion: string;
   direccion: string;
   idDistrito: number;
+  distritoNombre: string;
+  idEmpleado: number | null;
+  vendedorNombre: string;
 };
 
 export class FcLegacyWorkflowService {
@@ -159,6 +163,7 @@ export class FcLegacyWorkflowService {
             ISNULL(c.RUC, '') AS ruc,
             ISNULL(c.Direccion, '') AS direccion,
             ISNULL(c.IdDistrito, 0) AS idDistrito,
+            ISNULL(distrito.nombre, '') AS distritoNombre,
             ot.idOrdenTrabajo,
             CAST(dov.Cantidad - ISNULL(r.cantidadAceptada, 0) AS decimal(18,2)) AS cantidadPendiente
           FROM dbo.tbOrdenTrabajo ot
@@ -167,6 +172,7 @@ export class FcLegacyWorkflowService {
           INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
           INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
           INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+          LEFT JOIN dbo.tbDistrito distrito ON distrito.idDistrito = c.IdDistrito
           LEFT JOIN recibidas r ON r.idOT = ot.idOrdenTrabajo
           WHERE (@query = '%%'
             OR c.Nombre LIKE @query
@@ -185,10 +191,11 @@ export class FcLegacyWorkflowService {
           ruc,
           direccion,
           idDistrito,
+          distritoNombre,
           COUNT(DISTINCT idOrdenTrabajo) AS otsPendientes,
           CAST(SUM(cantidadPendiente) AS decimal(18,2)) AS cantidadPendiente
         FROM pendientes
-        GROUP BY idClieProv, cliente, ruc, direccion, idDistrito
+        GROUP BY idClieProv, cliente, ruc, direccion, idDistrito, distritoNombre
         ORDER BY cliente;
       `);
       return result.recordset;
@@ -286,17 +293,20 @@ export class FcLegacyWorkflowService {
           r.EstadoGuia AS estadoGuia,
           r.EstadoFactura AS estadoFactura,
           dov.Serie AS serieProducto,
-          ISNULL(legacyDetalle.formato, '') AS formato,
-          ISNULL(legacyDetalle.medida, '') AS medida,
-          ISNULL(dsp.cantidadCopias, 0) AS numCopias,
-          COALESCE(NULLIF(legacyDetalle.descripcion, ''), LTRIM(RTRIM(
+          '' AS formato,
+          '' AS medida,
+          0 AS numCopias,
+          LTRIM(RTRIM(
             ISNULL(ot.numero, '') COLLATE DATABASE_DEFAULT +
             CASE WHEN ISNULL(dov.Serie, '') <> '' THEN ' SERIE ' COLLATE DATABASE_DEFAULT + ISNULL(dov.Serie, '') COLLATE DATABASE_DEFAULT ELSE '' END +
             CASE WHEN ISNULL(r.Del, '') <> '' THEN ' DEL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Del, '') COLLATE DATABASE_DEFAULT ELSE '' END +
             CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Al, '') COLLATE DATABASE_DEFAULT ELSE '' END
-          ))) AS descripcion,
+          )) AS descripcion,
           c.Direccion AS direccion,
-          c.IdDistrito AS idDistrito
+          c.IdDistrito AS idDistrito,
+          ISNULL(distrito.nombre, '') AS distritoNombre,
+          solicitud.idEmpleado,
+          LTRIM(RTRIM(ISNULL(vendedor.Nombre, ISNULL(empleado.Nombre, '') + ' ' + ISNULL(empleado.Apellido, '')))) AS vendedorNombre
         FROM dbo.tbRecepcionOT r
         INNER JOIN dbo.tbOrdenTrabajo ot ON ot.idOrdenTrabajo = r.idOT
         INNER JOIN dbo.tbDetOrdenVenta dov ON dov.idDetOrdenVenta = ot.idDetOrdenVenta
@@ -304,6 +314,9 @@ export class FcLegacyWorkflowService {
         INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
         INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
         INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+        LEFT JOIN dbo.tbDistrito distrito ON distrito.idDistrito = c.IdDistrito
+        LEFT JOIN dbo.VW_VENDEDORES vendedor ON vendedor.idEmpleado = solicitud.idEmpleado
+        LEFT JOIN dbo.VW_EMPLEADOS empleado ON empleado.idEmpleado = solicitud.idEmpleado
         INNER JOIN dbo.tbUnidades u ON u.idUnidad = r.IDUNIDAD
         INNER JOIN dbo.tbMedidas medida ON medida.idMedida = ov.IdMedida
         LEFT JOIN dbo.tbEquivMed equivMed ON equivMed.idMedida = medida.idMedida
@@ -418,7 +431,10 @@ export class FcLegacyWorkflowService {
             CASE WHEN ISNULL(r.Al, '') <> '' THEN ' AL ' COLLATE DATABASE_DEFAULT + ISNULL(r.Al, '') COLLATE DATABASE_DEFAULT ELSE '' END
           )) AS descripcion,
           c.Direccion AS direccion,
-          c.IdDistrito AS idDistrito
+          c.IdDistrito AS idDistrito,
+          ISNULL(distrito.nombre, '') AS distritoNombre,
+          solicitud.idEmpleado,
+          LTRIM(RTRIM(ISNULL(vendedor.Nombre, ISNULL(empleado.Nombre, '') + ' ' + ISNULL(empleado.Apellido, '')))) AS vendedorNombre
         FROM dbo.tbRecepcionOT r
         INNER JOIN dbo.tbOrdenTrabajo ot ON ot.idOrdenTrabajo = r.idOT
         INNER JOIN dbo.tbDetOrdenVenta dov ON dov.idDetOrdenVenta = ot.idDetOrdenVenta
@@ -426,6 +442,9 @@ export class FcLegacyWorkflowService {
         INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
         INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
         INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+        LEFT JOIN dbo.tbDistrito distrito ON distrito.idDistrito = c.IdDistrito
+        LEFT JOIN dbo.VW_VENDEDORES vendedor ON vendedor.idEmpleado = solicitud.idEmpleado
+        LEFT JOIN dbo.VW_EMPLEADOS empleado ON empleado.idEmpleado = solicitud.idEmpleado
         INNER JOIN dbo.tbUnidades u ON u.idUnidad = r.IDUNIDAD
         WHERE (@query = '%%'
           OR ot.numero LIKE @query
@@ -496,6 +515,7 @@ export class FcLegacyWorkflowService {
     await pool.connect();
     try {
       const request = new sql.Request(pool);
+      const supportedParams = await getProcedureParamNames(pool, 'dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC');
       const xml = `<ids>${input.idRecepciones.map((id) => `<id>${id}</id>`).join('')}</ids>`;
       const detallesXml = `<detalles>${(input.detalles ?? []).map((item) => [
         `<detalle idRecepcionOT="${escapeXml(String(item.idRecepcionOT))}">`,
@@ -504,16 +524,16 @@ export class FcLegacyWorkflowService {
         `<unidad>${escapeXml(item.unidad)}</unidad>`,
         '</detalle>'
       ].join('')).join('')}</detalles>`;
-      request.input('serie', sql.VarChar(3), input.serie);
-      request.input('recepcionesXml', sql.Xml, xml);
-      request.input('direccion', sql.VarChar(150), input.direccion);
-      request.input('idDistrito', sql.Int, input.idDistrito);
-      request.input('ordenCompra', sql.VarChar(50), input.ordenCompra);
-      request.input('observaciones', sql.VarChar(50), input.observaciones);
-      request.input('formaPago', sql.VarChar(80), input.formaPago ?? '');
-      request.input('idEmpleado', sql.Int, input.idEmpleado ?? null);
-      request.input('idMotivoTraslado', sql.Int, input.idMotivoTraslado ?? 0);
-      request.input('detallesXml', sql.Xml, detallesXml);
+      addProcedureInput(request, supportedParams, 'serie', sql.VarChar(3), input.serie);
+      addProcedureInput(request, supportedParams, 'recepcionesXml', sql.Xml, xml);
+      addProcedureInput(request, supportedParams, 'direccion', sql.VarChar(150), input.direccion);
+      addProcedureInput(request, supportedParams, 'idDistrito', sql.Int, input.idDistrito);
+      addProcedureInput(request, supportedParams, 'ordenCompra', sql.VarChar(50), input.ordenCompra);
+      addProcedureInput(request, supportedParams, 'observaciones', sql.VarChar(50), input.observaciones);
+      addProcedureInput(request, supportedParams, 'formaPago', sql.VarChar(80), input.formaPago ?? '');
+      addProcedureInput(request, supportedParams, 'idEmpleado', sql.Int, input.idEmpleado ?? null);
+      addProcedureInput(request, supportedParams, 'idMotivoTraslado', sql.Int, input.idMotivoTraslado ?? 0);
+      addProcedureInput(request, supportedParams, 'detallesXml', sql.Xml, detallesXml);
       const result = await request.execute('dbo.GRE_WEB_CREAR_GUIA_INTERNA_FC');
       return findProcedureRow(result.recordsets, 'serieNumero');
     } finally { await pool.close(); }
@@ -534,6 +554,7 @@ export class FcLegacyWorkflowService {
           ISNULL(c.RUC, '') AS ruc,
           ISNULL(c.Direccion, '') AS direccion,
           ISNULL(c.IdDistrito, 0) AS idDistrito,
+          ISNULL(distrito.nombre, '') AS distritoNombre,
           COUNT(DISTINCT ot.idOrdenTrabajo) AS otsPendientes,
           CAST(SUM(r.Cantidad) AS decimal(18,2)) AS cantidadPendiente
         FROM dbo.tbRecepcionOT r
@@ -543,6 +564,7 @@ export class FcLegacyWorkflowService {
         INNER JOIN dbo.tbDetSoliProf dsp ON dsp.idDetSoliProf = ov.idDetSoliProf
         INNER JOIN dbo.tbDocumentos solicitud ON solicitud.idDocumento = dsp.idDocumento
         INNER JOIN dbo.tbClieProv c ON c.idClieProv = solicitud.idClieProv
+        LEFT JOIN dbo.tbDistrito distrito ON distrito.idDistrito = c.IdDistrito
         WHERE (@query = '%%'
           OR c.Nombre LIKE @query
           OR ISNULL(c.RUC, '') LIKE @query
@@ -553,7 +575,7 @@ export class FcLegacyWorkflowService {
           OR CONVERT(varchar(20), r.idRecepcionOT) LIKE @query)
           AND r.EstadoOT = 'C'
           AND r.EstadoGuia = 'N'
-        GROUP BY c.idClieProv, c.Nombre, c.RUC, c.Direccion, c.IdDistrito
+        GROUP BY c.idClieProv, c.Nombre, c.RUC, c.Direccion, c.IdDistrito, distrito.nombre
         ORDER BY c.Nombre;
       `);
       return result.recordset;
@@ -583,6 +605,29 @@ function isLegacyMetadataPermissionError(error: unknown) {
   return message.includes('SELECT permission was denied')
     || message.includes('Invalid object name')
     || message.includes('Invalid column name');
+}
+
+async function getProcedureParamNames(pool: sql.ConnectionPool, procedureName: string) {
+  const result = await new sql.Request(pool)
+    .input('procedureName', sql.NVarChar(256), procedureName)
+    .query<{ parameterName: string }>(`
+      SELECT LOWER(REPLACE(p.name, '@', '')) AS parameterName
+      FROM sys.parameters p
+      WHERE p.object_id = OBJECT_ID(@procedureName);
+    `);
+
+  return new Set(result.recordset.map((row) => row.parameterName));
+}
+
+function addProcedureInput(
+  request: sql.Request,
+  supportedParams: Set<string>,
+  name: string,
+  type: Parameters<sql.Request['input']>[1],
+  value: unknown
+) {
+  if (!supportedParams.has(name.toLowerCase())) return;
+  request.input(name, type, value);
 }
 
 async function listLegacyPaymentTerms(pool: sql.ConnectionPool, warnings: string[]): Promise<FcLegacyFormaPagoRow[]> {
@@ -696,9 +741,15 @@ async function listLegacyTransferReasons(pool: sql.ConnectionPool, warnings: str
 
 function defaultLegacyTransferReasons(): FcLegacyMotivoRow[] {
   return [
-    { idMotivoTraslado: 0, nombre: 'Segun guia interna' },
-    { idMotivoTraslado: 17, nombre: 'Traslado' },
-    { idMotivoTraslado: 18, nombre: 'Transformacion' }
+    { idMotivoTraslado: 1, nombre: 'VENTA' },
+    { idMotivoTraslado: 2, nombre: 'COMPRA' },
+    { idMotivoTraslado: 7, nombre: 'DEVOLUCION' },
+    { idMotivoTraslado: 12, nombre: 'CONSIGNACION' },
+    { idMotivoTraslado: 8, nombre: 'IMPORTACION' },
+    { idMotivoTraslado: 17, nombre: 'TRASLADO DE BIENES PARA TRANSF.' },
+    { idMotivoTraslado: 4, nombre: 'T. ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA' },
+    { idMotivoTraslado: 18, nombre: 'T. POR EMISOR ITINERANTE DE COMP. DE PAGO' },
+    { idMotivoTraslado: 13, nombre: 'OTROS' }
   ];
 }
 

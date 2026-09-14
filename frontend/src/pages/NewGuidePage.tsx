@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Eye, RefreshCw, Search, Wrench } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Eye, Plus, RefreshCw, Search, Wrench, X } from 'lucide-react';
 import { DeclarationSuccessModal } from '../components/DeclarationSuccessModal';
 import { CharacterCounter } from '../components/CharacterCounter';
 import { FormField } from '../components/FormField';
@@ -21,11 +21,20 @@ import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
 import { toGreInputDto } from '../utils/payload';
 
 type FieldName = keyof GreFormState;
+type SearchType = 'ot' | 'guia' | 'miscelanea';
 
 const transferReasons = SUNAT_GRE_TRANSFER_REASONS;
 
-function pickDefaultDestination(searchType: 'ot' | 'guia', document: WorkOrderDocument) {
-  if (searchType === 'guia') return document.destinos[0];
+function isPhysicalGuideSearch(searchType: SearchType) {
+  return searchType === 'guia' || searchType === 'miscelanea';
+}
+
+function physicalGuideLabel(searchType: SearchType) {
+  return searchType === 'miscelanea' ? 'Miscelanea' : 'guia fisica';
+}
+
+function pickDefaultDestination(searchType: SearchType, document: WorkOrderDocument) {
+  if (isPhysicalGuideSearch(searchType)) return document.destinos[0];
   if (document.destinos.length === 1) return document.destinos[0];
 
   const recipientNumber = document.destinatario?.numeroDocumentoDestinatario.trim();
@@ -38,9 +47,16 @@ function pickDefaultDestination(searchType: 'ot' | 'guia', document: WorkOrderDo
   });
 }
 
+function normalizePhysicalGuideSearchText(value: string, searchType: SearchType) {
+  const trimmed = value.trim();
+  if (searchType !== 'guia') return trimmed;
+  if (/^\d{1,7}$/.test(trimmed)) return `001-${trimmed.padStart(7, '0')}`;
+  return trimmed;
+}
+
 export function NewGuidePage() {
   const [form, setForm] = useState<GreFormState>(() => createDefaultFormState());
-  const [searchType, setSearchType] = useState<'ot' | 'guia'>('ot');
+  const [searchType, setSearchType] = useState<SearchType>('ot');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [otDocumentOpen, setOtDocumentOpen] = useState(false);
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
@@ -59,6 +75,15 @@ export function NewGuidePage() {
   const [drivers, setDrivers] = useState<DriverCatalogItem[]>([]);
   const [driversMessage, setDriversMessage] = useState('');
   const [seriesMessage, setSeriesMessage] = useState('');
+  const [destinationModalOpen, setDestinationModalOpen] = useState(false);
+  const [destinationForm, setDestinationForm] = useState({
+    direccion: '',
+    ubigeo: '',
+    esPrincipal: true
+  });
+  const [destinationSaveMessage, setDestinationSaveMessage] = useState('');
+  const [destinationSaving, setDestinationSaving] = useState(false);
+  const appliedHashSearch = useRef(false);
 
   const payload = useMemo(() => toGreInputDto(form), [form]);
   const selectableDrivers = useMemo(() => uniqueDrivers(drivers), [drivers]);
@@ -126,6 +151,22 @@ export function NewGuidePage() {
     void loadNextSerie();
   }, []);
 
+  useEffect(() => {
+    if (appliedHashSearch.current) return;
+    const queryText = window.location.hash.split('?')[1];
+    if (!queryText) return;
+
+    const params = new URLSearchParams(queryText);
+    const requestedType = params.get('type') ?? params.get('buscarPor');
+    const q = params.get('q') ?? params.get('guia') ?? '';
+    if (!q.trim() || requestedType !== 'guia') return;
+
+    appliedHashSearch.current = true;
+    setSearchType('guia');
+    setForm((current) => ({ ...current, searchText: normalizePhysicalGuideSearchText(q, 'guia') }));
+    void loadDocument('guia', q);
+  }, []);
+
   function updateField<K extends FieldName>(field: K, value: GreFormState[K]) {
     setPreviewConfirmed(false);
     setDeclareMessage('');
@@ -158,8 +199,9 @@ export function NewGuidePage() {
     void loadNextSerie(serie);
   }
 
-  function applyWorkOrderDocument(document: WorkOrderDocument) {
-    const selectedAddress = pickDefaultDestination(searchType, document);
+  function applyWorkOrderDocument(document: WorkOrderDocument, sourceType: SearchType = searchType) {
+    const selectedAddress = pickDefaultDestination(sourceType, document);
+    const guideSearch = isPhysicalGuideSearch(sourceType);
 
     setPreviewConfirmed(false);
     setDestinationAddresses(document.destinos);
@@ -168,7 +210,10 @@ export function NewGuidePage() {
       ...current,
       selectedIdDocumentos: document.idDocumentos,
       trazabilidadYchiscom: document.trazabilidadYchiscom
-        ? { origenOperacion: 'FRONT_MANUAL', ...document.trazabilidadYchiscom }
+        ? {
+            origenOperacion: guideSearch ? 'YCHISCOM_AUTOMATICO' : 'FRONT_MANUAL',
+            ...document.trazabilidadYchiscom
+          }
         : { origenOperacion: 'FRONT_MANUAL' },
       ordenCompra: document.ordenCompra,
       observaciones: mergePurchaseOrderObservation(current.observaciones, document.ordenCompra),
@@ -179,8 +224,8 @@ export function NewGuidePage() {
       direccionPtoLlegada: selectedAddress?.direccion ?? '',
       ubigeoPtoLlegada: selectedAddress?.ubigeo ?? '',
       codigoPtoLlegada: selectedAddress?.codigoDestino ?? '',
-      motivoTraslado: searchType === 'guia' ? '01' : current.motivoTraslado,
-      descripcionMotivoTraslado: searchType === 'guia' ? 'VENTA' : current.descripcionMotivoTraslado,
+      motivoTraslado: guideSearch ? '01' : current.motivoTraslado,
+      descripcionMotivoTraslado: guideSearch ? 'VENTA' : current.descripcionMotivoTraslado,
       items: document.productos.map((product) => ({
         ...product,
         cantidadOriginal: product.cantidadOriginal ?? product.cantidad,
@@ -219,12 +264,19 @@ export function NewGuidePage() {
     }));
   }
 
-  async function loadDocument() {
+  async function loadDocument(typeOverride = searchType, textOverride = form.searchText) {
+    const effectiveText = normalizePhysicalGuideSearchText(textOverride, typeOverride);
+    const guideSearch = isPhysicalGuideSearch(typeOverride);
+    const backendSearchType = guideSearch ? 'guia' : 'ot';
+    const guideLabel = physicalGuideLabel(typeOverride);
     setPreviewConfirmed(false);
-    setLoadMessage(searchType === 'guia' ? 'Buscando guia fisica 001/003...' : 'Buscando OT...');
+    setLoadMessage(guideSearch ? `Buscando ${guideLabel}...` : 'Buscando OT...');
+    if (effectiveText !== form.searchText) {
+      setForm((current) => ({ ...current, searchText: effectiveText }));
+    }
 
     try {
-      const result = await workOrderService.searchByOt(form.searchText, searchType);
+      const result = await workOrderService.searchByOt(effectiveText, backendSearchType);
 
       if (result.status === 'OT_NO_ENCONTRADA') {
         setLoadMessage(result.message);
@@ -237,10 +289,10 @@ export function NewGuidePage() {
       }
 
       if (result.documents.length === 1 && result.documents[0]) {
-        applyWorkOrderDocument(result.documents[0]);
+        applyWorkOrderDocument(result.documents[0], typeOverride);
         setLoadMessage([
           result.status === 'OT_DISPONIBLE'
-            ? (searchType === 'guia' ? `Guia fisica disponible. Productos: ${result.documents[0].productos.length}` : `OT disponible. Productos: ${result.documents[0].productos.length}`)
+            ? (guideSearch ? `${guideLabel} disponible. Productos: ${result.documents[0].productos.length}` : `OT disponible. Productos: ${result.documents[0].productos.length}`)
             : result.message,
           ...(result.warnings ?? [])
         ].join(' '));
@@ -249,9 +301,9 @@ export function NewGuidePage() {
 
       setOtDocuments(result.documents);
       setOtDocumentOpen(true);
-      setLoadMessage(searchType === 'guia' ? `Guia fisica disponible. Se encontraron ${result.documents.length} registros.` : `OT disponible. Se encontraron ${result.documents.length} documentos relacionados.`);
+      setLoadMessage(guideSearch ? `${guideLabel} disponible. Se encontraron ${result.documents.length} registros.` : `OT disponible. Se encontraron ${result.documents.length} documentos relacionados.`);
     } catch (error) {
-      setLoadMessage(error instanceof Error ? error.message : (searchType === 'guia' ? 'No se pudo buscar la guia fisica.' : 'No se pudo buscar la OT.'));
+      setLoadMessage(error instanceof Error ? error.message : (guideSearch ? `No se pudo buscar ${guideLabel}.` : 'No se pudo buscar la OT.'));
     }
   }
 
@@ -283,6 +335,63 @@ export function NewGuidePage() {
 
     setSelectedDestinationId(addressId);
     applyDestination(address);
+  }
+
+  function openDestinationModal() {
+    setDestinationSaveMessage('');
+    setDestinationForm({
+      direccion: '',
+      ubigeo: '',
+      esPrincipal: true
+    });
+    setDestinationModalOpen(true);
+  }
+
+  function closeDestinationModal() {
+    if (destinationSaving) return;
+    setDestinationModalOpen(false);
+    setDestinationSaveMessage('');
+  }
+
+  async function saveDestination() {
+    const numeroDocumento = form.numeroDocumentoDestinatario.trim();
+    const direccion = destinationForm.direccion.trim();
+    const ubigeo = destinationForm.ubigeo.trim();
+
+    setDestinationSaveMessage('');
+
+    if (!numeroDocumento) {
+      setDestinationSaveMessage('Seleccione un cliente/proveedor antes de guardar destino.');
+      return;
+    }
+    if (!direccion) {
+      setDestinationSaveMessage('Ingrese la direccion de destino.');
+      return;
+    }
+    if (!/^\d{6}$/.test(ubigeo)) {
+      setDestinationSaveMessage('El ubigeo debe tener 6 digitos.');
+      return;
+    }
+
+    setDestinationSaving(true);
+    try {
+      const created = await greFormularioService.createDestino(numeroDocumento, {
+        direccion,
+        ubigeo,
+        esPrincipal: destinationForm.esPrincipal
+      });
+
+      setDestinationAddresses((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      setSelectedDestinationId(created.id);
+      applyDestination(created);
+      setLoadMessage(`Destino registrado: ${created.ubigeo} - ${created.direccion}.`);
+      setDestinationModalOpen(false);
+      setDestinationSaveMessage('');
+    } catch (error) {
+      setDestinationSaveMessage(error instanceof Error ? error.message : 'No se pudo guardar el destino.');
+    } finally {
+      setDestinationSaving(false);
+    }
   }
 
   function emissionDateTime() {
@@ -481,12 +590,13 @@ export function NewGuidePage() {
             <select
               value={searchType}
               onChange={(event) => {
-                setSearchType(event.target.value as 'ot' | 'guia');
+                setSearchType(event.target.value as SearchType);
                 setLoadMessage('');
               }}
             >
               <option value="ot">OT</option>
-              <option value="guia">GUIA FISICA 001/003</option>
+              <option value="guia">001/Fisica</option>
+              <option value="miscelanea">Miscelanea</option>
             </select>
             <input
               value={form.searchText}
@@ -497,9 +607,15 @@ export function NewGuidePage() {
                   void loadDocument();
                 }
               }}
-              placeholder={searchType === 'guia' ? "Serie-Numero (ej: 001-0112866 o 003-0006698)" : "Número de OT"}
+              placeholder={
+                searchType === 'guia'
+                  ? "Numero fisico (ej: 0113030 o 001-0113030)"
+                  : searchType === 'miscelanea'
+                    ? "Serie-Numero (ej: 001-0112866)"
+                    : "Número de OT"
+              }
             />
-            <button type="button" className="tool-button primary-tool" onClick={loadDocument}>
+            <button type="button" className="tool-button primary-tool" onClick={() => void loadDocument()}>
               <Search size={16} />
               Buscar
             </button>
@@ -545,9 +661,9 @@ export function NewGuidePage() {
                   : ''
               }
               readOnly
-              placeholder={searchType === 'guia' ? "Se completa al buscar la guia fisica" : "Se completa al buscar la OT"}
+              placeholder={isPhysicalGuideSearch(searchType) ? `Se completa al buscar ${physicalGuideLabel(searchType)}` : "Se completa al buscar la OT"}
             />
-            <button type="button" className="icon-button" title={searchType === 'guia' ? "Destinatario automatico desde guia fisica" : "Destinatario automático desde OT"} disabled>
+            <button type="button" className="icon-button" title={isPhysicalGuideSearch(searchType) ? `Destinatario automatico desde ${physicalGuideLabel(searchType)}` : "Destinatario automático desde OT"} disabled>
               <Wrench size={18} />
             </button>
           </div>
@@ -567,6 +683,15 @@ export function NewGuidePage() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="icon-button destination-add-button"
+              onClick={openDestinationModal}
+              disabled={!form.numeroDocumentoDestinatario.trim()}
+              title="Agregar destino"
+            >
+              <Plus size={18} />
+            </button>
             <input
               value={form.ubigeoPtoLlegada}
               maxLength={6}
@@ -709,8 +834,8 @@ export function NewGuidePage() {
               {form.items.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="empty-row">
-                    {searchType === 'guia' 
-                      ? 'Busque una guia fisica 001/003 para cargar productos desde VW_DETGUIA_REMISION.' 
+                    {isPhysicalGuideSearch(searchType)
+                      ? `Busque ${searchType === 'miscelanea' ? 'Miscelanea' : 'una guia fisica 001/003'} para cargar productos desde VW_DETGUIA_REMISION.`
                       : 'Busque una OT para cargar productos desde VW_DETGUIA_REMISION.'}
                   </td>
                 </tr>
@@ -787,8 +912,62 @@ export function NewGuidePage() {
         <OtDocumentModal
           documents={otDocuments}
           onClose={() => setOtDocumentOpen(false)}
-          onSelect={applyWorkOrderDocument}
+          onSelect={(document) => applyWorkOrderDocument(document, searchType)}
         />
+      )}
+      {destinationModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="destination-modal">
+            <div className="modal-titlebar">
+              <div>
+                <h2>Nuevo destino</h2>
+                <p>{form.numeroDocumentoDestinatario} - {form.razonSocialDestinatario}</p>
+              </div>
+              <button type="button" className="modal-close" onClick={closeDestinationModal} aria-label="Cerrar">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="destination-modal-body">
+              <FormField label="DIRECCION" required>
+                <input
+                  value={destinationForm.direccion}
+                  onChange={(event) => setDestinationForm((current) => ({ ...current, direccion: event.target.value }))}
+                  maxLength={250}
+                  autoFocus
+                  placeholder="Direccion de llegada"
+                />
+              </FormField>
+              <FormField label="UBIGEO" required>
+                <input
+                  value={destinationForm.ubigeo}
+                  maxLength={6}
+                  onChange={(event) => setDestinationForm((current) => ({
+                    ...current,
+                    ubigeo: event.target.value.replace(/\D/g, '').slice(0, 6)
+                  }))}
+                  placeholder="6 digitos"
+                />
+              </FormField>
+              <label className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={destinationForm.esPrincipal}
+                  onChange={(event) => setDestinationForm((current) => ({ ...current, esPrincipal: event.target.checked }))}
+                />
+                Marcar como principal
+              </label>
+              {destinationSaveMessage && <div className="inline-message error-message">{destinationSaveMessage}</div>}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={closeDestinationModal} disabled={destinationSaving}>
+                Cancelar
+              </button>
+              <button type="button" className="primary-button" onClick={() => void saveDestination()} disabled={destinationSaving}>
+                {destinationSaving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {successSerie && (
         <DeclarationSuccessModal

@@ -400,8 +400,10 @@ export class GreFormularioQueryService {
 
     try {
       const request = new sql.Request(pool);
+      const numeroSinCeros = String(Number(parsed.numero));
       request.input('serie', sql.VarChar(20), parsed.serie);
       request.input('numero', sql.VarChar(20), parsed.numero);
+      request.input('numeroSinCeros', sql.VarChar(20), numeroSinCeros);
 
       const docResult = await request.query<{
         idDocumento: number;
@@ -419,7 +421,10 @@ export class GreFormularioQueryService {
         FROM dbo.tbDocumentos
         WHERE ((@serie = '001' AND idTipoDocu = 8) OR (@serie = '003' AND idTipoDocu = 39))
           AND SeriDocu = @serie
-          AND NumeDocu = @numero
+          AND (NumeDocu = @numero OR NumeDocu = @numeroSinCeros)
+        ORDER BY
+          CASE WHEN NumeDocu = @numero THEN 0 ELSE 1 END,
+          idDocumento DESC
       `);
 
       if (docResult.recordset.length === 0) {

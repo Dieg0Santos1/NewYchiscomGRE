@@ -79,6 +79,32 @@ export type FlexoValidation = {
   message: string;
 };
 
+export type FlexoEmpaqueAdjustment = {
+  id: string;
+  codigoEmpaque: number;
+  codigoProducto: string;
+  descripcion: string;
+  cantidad: number;
+  unidadMedida: string;
+  moneda: string;
+  ordenGuia: string;
+  ordenFactura: string;
+  ticket: string;
+  ordenCompra: string;
+  clienteNumeroDocumento: string;
+  clienteRazonSocial: string;
+  guiaRemision: string | null;
+  guiaFactura: string | null;
+};
+
+export type FlexoUpdateUnidadResult = {
+  codigoEmpaque: number;
+  codigoProducto: string;
+  unidadAnterior: string;
+  unidadNueva: string;
+  updated: true;
+};
+
 export interface FlexoService {
   searchClientes(query: string): Promise<FlexoCliente[]>;
   listDestinos(numeroDocumento: string): Promise<FlexoDestino[]>;
@@ -96,6 +122,12 @@ export interface FlexoService {
     validations: FlexoValidation[];
     payload: FlexoGuidePreviewInput;
   }>;
+  searchEmpaqueAdjustments(query: string): Promise<FlexoEmpaqueAdjustment[]>;
+  updateEmpaqueUnidad(params: {
+    codigoEmpaque: number;
+    codigoProducto: string;
+    unidadMedida: string;
+  }): Promise<FlexoUpdateUnidadResult>;
 }
 
 type ClienteRow = {
@@ -120,6 +152,30 @@ type EmpaqueRow = {
   DESCRIPCION: string | null;
   CANTIDAD: number | string | null;
   UNIDADMEDIDA: string | null;
+};
+
+type EmpaqueAdjustmentRow = {
+  CODIGOEMPAQUE: number;
+  CODIGOPRODUCTO: string | null;
+  DESCRIPCION: string | null;
+  CANTIDAD: number | string | null;
+  UNIDADMEDIDA: string | null;
+  MONEDA: string | null;
+  ORDENGUIA: string | null;
+  ORDENFACTURA: string | null;
+  TICKETNUM: string | null;
+  ORDENCOMPRA: string | null;
+  NUMERODOCUMENTOADQUIRIENTE: string | null;
+  RAZONSOCIALADQUIRIENTE: string | null;
+  SERIENUMEROGUIAREMISION: string | null;
+  SERIENUMEROGUIAFACTURA: string | null;
+};
+
+type UpdatedEmpaqueUnidadRow = {
+  CODIGOEMPAQUE: number;
+  CODIGOPRODUCTO: string;
+  unidadAnterior: string;
+  unidadNueva: string;
 };
 
 export class DirectDbFlexoService implements FlexoService {
@@ -293,6 +349,146 @@ export class DirectDbFlexoService implements FlexoService {
       payload: input
     };
   }
+
+  async searchEmpaqueAdjustments(query: string) {
+    const normalized = query.trim();
+    if (normalized.length < 2) return [];
+
+    const pool = createBizlinksPool(this.config);
+    await pool.connect();
+
+    try {
+      const request = new sql.Request(pool);
+      request.input('query', sql.NVarChar(200), `%${normalized}%`);
+      request.input('codigoEmpaque', sql.Int, /^\d+$/.test(normalized) ? Number(normalized) : null);
+
+      const result = await request.query<EmpaqueAdjustmentRow>(`
+        SELECT TOP (200)
+          d.CODIGOEMPAQUE,
+          d.CODIGOPRODUCTO,
+          d.DESCRIPCION,
+          d.CANTIDAD,
+          d.UNIDADMEDIDA,
+          d.MONEDA,
+          d.ORDENGUIA,
+          d.ORDENFACTURA,
+          e.TICKETNUM,
+          e.ORDENCOMPRA,
+          e.NUMERODOCUMENTOADQUIRIENTE,
+          e.RAZONSOCIALADQUIRIENTE,
+          d.SERIENUMEROGUIAREMISION,
+          d.SERIENUMEROGUIAFACTURA
+        FROM dbo.EMPAQUE_DETALLE d
+        LEFT JOIN dbo.EMPAQUE e
+          ON e.CODIGOEMPAQUE = d.CODIGOEMPAQUE
+        WHERE (
+            d.CODIGOEMPAQUE = @codigoEmpaque
+            OR d.CODIGOPRODUCTO LIKE @query
+            OR d.DESCRIPCION LIKE @query
+            OR d.UNIDADMEDIDA LIKE @query
+            OR e.TICKETNUM LIKE @query
+            OR e.ORDENCOMPRA LIKE @query
+            OR e.NUMERODOCUMENTOADQUIRIENTE LIKE @query
+            OR e.RAZONSOCIALADQUIRIENTE LIKE @query
+          )
+        ORDER BY
+          CASE WHEN UPPER(LTRIM(RTRIM(ISNULL(d.UNIDADMEDIDA, '')))) IN ('ROLLO', 'ROLLOS', 'ROLL', 'ROLLS', 'ROL') THEN 0 ELSE 1 END,
+          d.CODIGOEMPAQUE DESC,
+          d.CODIGOPRODUCTO
+      `);
+
+      return result.recordset.map(mapEmpaqueAdjustment);
+    } finally {
+      await pool.close();
+    }
+  }
+
+  async updateEmpaqueUnidad(params: { codigoEmpaque: number; codigoProducto: string; unidadMedida: string }) {
+    const codigoProducto = params.codigoProducto.trim();
+    const unidadMedida = normalizeEditableUnidad(params.unidadMedida);
+
+    if (!Number.isInteger(params.codigoEmpaque) || params.codigoEmpaque <= 0) {
+      throw new Error('Codigo de empaque invalido.');
+    }
+
+    if (!codigoProducto) {
+      throw new Error('Codigo de producto invalido.');
+    }
+
+    const pool = createBizlinksPool(this.config);
+    await pool.connect();
+
+    try {
+      const request = new sql.Request(pool);
+      request.input('codigoEmpaque', sql.Int, params.codigoEmpaque);
+      request.input('codigoProducto', sql.VarChar(50), codigoProducto);
+      request.input('unidadMedida', sql.VarChar(10), unidadMedida);
+
+      const result = await request.query<UpdatedEmpaqueUnidadRow>(`
+        UPDATE d
+           SET d.UNIDADMEDIDA = @unidadMedida
+        OUTPUT
+          inserted.CODIGOEMPAQUE,
+          inserted.CODIGOPRODUCTO,
+          deleted.UNIDADMEDIDA AS unidadAnterior,
+          inserted.UNIDADMEDIDA AS unidadNueva
+        FROM dbo.EMPAQUE_DETALLE d
+        WHERE d.CODIGOEMPAQUE = @codigoEmpaque
+          AND d.CODIGOPRODUCTO = @codigoProducto
+          AND d.SERIENUMEROGUIAREMISION IS NULL
+          AND d.SERIENUMEROGUIAFACTURA IS NULL;
+      `);
+      const row = result.recordset[0];
+
+      if (!row) {
+        throw new Error('No se actualizo el empaque. Verifique que exista y que aun no este ligado a guia o factura.');
+      }
+
+      return {
+        codigoEmpaque: row.CODIGOEMPAQUE,
+        codigoProducto: row.CODIGOPRODUCTO.trim(),
+        unidadAnterior: row.unidadAnterior?.trim() ?? '',
+        unidadNueva: row.unidadNueva?.trim() ?? unidadMedida,
+        updated: true as const
+      };
+    } finally {
+      await pool.close();
+    }
+  }
+}
+
+function mapEmpaqueAdjustment(row: EmpaqueAdjustmentRow): FlexoEmpaqueAdjustment {
+  const codigoEmpaque = Number(row.CODIGOEMPAQUE);
+  const codigoProducto = row.CODIGOPRODUCTO?.trim() ?? '';
+
+  return {
+    id: `${codigoEmpaque}-${codigoProducto}`,
+    codigoEmpaque,
+    codigoProducto,
+    descripcion: row.DESCRIPCION?.trim() ?? '',
+    cantidad: Number(row.CANTIDAD ?? 0),
+    unidadMedida: row.UNIDADMEDIDA?.trim() ?? '',
+    moneda: row.MONEDA?.trim() ?? '',
+    ordenGuia: row.ORDENGUIA?.trim() ?? '',
+    ordenFactura: row.ORDENFACTURA?.trim() ?? '',
+    ticket: row.TICKETNUM?.trim() ?? '',
+    ordenCompra: row.ORDENCOMPRA?.trim() ?? '',
+    clienteNumeroDocumento: row.NUMERODOCUMENTOADQUIRIENTE?.trim() ?? '',
+    clienteRazonSocial: row.RAZONSOCIALADQUIRIENTE?.trim() ?? '',
+    guiaRemision: row.SERIENUMEROGUIAREMISION?.trim() || null,
+    guiaFactura: row.SERIENUMEROGUIAFACTURA?.trim() || null
+  };
+}
+
+function normalizeEditableUnidad(value: string) {
+  const normalized = value.trim().toUpperCase();
+  const allowed = new Set(['NIU', 'MLL', 'MIL', 'KGM', 'MTR', 'MTK', 'ZZ']);
+
+  if (!allowed.has(normalized)) {
+    throw new Error('Unidad de medida no permitida para ajuste Flexo.');
+  }
+
+  return normalized;
 }
 
 function groupEmpaques(rows: EmpaqueRow[]) {

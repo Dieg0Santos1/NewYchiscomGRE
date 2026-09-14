@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ArrowRight, CheckCircle2, FilePlus2, ListFilter, Search, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, FilePlus2, FileText, ListFilter, Search, X } from 'lucide-react';
 import { fcLegacyWorkflowService } from '../services/FcLegacyWorkflowService';
 import type { FcLegacyCatalogs, FcLegacyClient, FcLegacyGuideItem, FcLegacyReception, FcLegacyWorkOrder } from '../types/fcLegacy';
 
@@ -34,6 +34,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     serie: '001' as '001' | '003',
     direccion: '',
     idDistrito: 0,
+    distritoNombre: '',
     ordenCompra: '',
     observaciones: '',
     formaPago: '',
@@ -41,6 +42,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     idMotivoTraslado: 0
   });
   const [lastInternalGuide, setLastInternalGuide] = useState<{ serieNumero?: string } | null>(null);
+  const [successInternalGuide, setSuccessInternalGuide] = useState<{ serieNumero: string } | null>(null);
   const [nextInternalGuide, setNextInternalGuide] = useState('');
 
   const selectedIds = useMemo(() => selectedReceptions.map((row) => row.idRecepcionOT), [selectedReceptions]);
@@ -67,13 +69,14 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       catalogsRequest
     ])
       .then(([capabilities, loadedCatalogs]) => {
+        const motivos = sortLegacyMotivos(loadedCatalogs.motivos);
         setWriteEnabled(capabilities.writeEnabled);
-        setCatalogs(loadedCatalogs);
+        setCatalogs({ ...loadedCatalogs, motivos });
         setGuide((current) => ({
           ...current,
           formaPago: current.formaPago || loadedCatalogs.formasPago[0]?.valor || loadedCatalogs.formasPago[0]?.nombre || '',
-          idEmpleado: current.idEmpleado ?? loadedCatalogs.vendedores[0]?.idEmpleado ?? null,
-          idMotivoTraslado: current.idMotivoTraslado ?? loadedCatalogs.motivos[0]?.idMotivoTraslado ?? 0
+          idEmpleado: current.idEmpleado,
+          idMotivoTraslado: current.idMotivoTraslado || defaultVentaMotivoId(motivos)
         }));
       })
       .catch((error) => setMessage(error instanceof Error ? error.message : 'No se pudo consultar el modo operativo.'))
@@ -136,7 +139,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
     setSelectedReceptions([]);
     setGuideItems([]);
     setPreGuide({ cantidad: 0, del: '', al: '' });
-    setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0 }));
+    setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0, distritoNombre: row.distritoNombre ?? '' }));
     setPicker(null);
     setMessage(`Cliente ${row.cliente} seleccionado.`);
   }
@@ -154,7 +157,6 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
 
   async function createPreGuide() {
     if (!selectedOt || !writeEnabled) return;
-    if (!window.confirm(`Crear pre-guia para ${selectedOt.numeroOt} por ${preGuide.cantidad}?`)) return;
     setLoading(true);
     try {
       await fcLegacyWorkflowService.createPreGuide({ numeroOt: selectedOt.numeroOt, ...preGuide });
@@ -168,7 +170,6 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
 
   async function acceptPreGuide(row: FcLegacyReception) {
     if (!writeEnabled) return;
-    if (!window.confirm(`Aceptar la pre-guia ${row.idRecepcionOT} de ${row.numeroOt}? Esta accion crea su movimiento de ingreso.`)) return;
     setLoading(true);
     try {
       await fcLegacyWorkflowService.acceptPreGuide(row.idRecepcionOT);
@@ -190,7 +191,13 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       return;
     }
     if (selectedReceptions.length === 0) {
-      setGuide((current) => ({ ...current, direccion: row.direccion ?? '', idDistrito: row.idDistrito ?? 0 }));
+      setGuide((current) => ({
+        ...current,
+        direccion: row.direccion ?? '',
+        idDistrito: row.idDistrito ?? 0,
+        distritoNombre: row.distritoNombre ?? '',
+        idEmpleado: row.idEmpleado ?? current.idEmpleado
+      }));
     }
     setSelectedReceptions((current) => [...current, row]);
     setDescriptionQuery(row.descripcion || `${row.numeroOt} | ${row.del} - ${row.al}`);
@@ -229,15 +236,31 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
 
   async function createInternalGuide() {
     if (!writeEnabled || selectedIds.length === 0) return;
-    if (!window.confirm(`Emitir guia interna ${guide.serie} con ${selectedIds.length} recepcion(es)?`)) return;
     setLoading(true);
     try {
       const result = await fcLegacyWorkflowService.createInternalGuide({ ...guide, idRecepciones: selectedIds, detalles: guideItems });
       const serieNumero = result.internalGuide?.serieNumero ?? guide.serie;
       setLastInternalGuide({ serieNumero });
-      setMessage(`Guia interna ${serieNumero} creada con trazabilidad por recepcion. Ya puede buscarse en GRE.`);
+      setSuccessInternalGuide({ serieNumero });
+      setMessage(`Guia interna ${serieNumero} creada con trazabilidad por recepcion.`);
+      setSelectedClient(null);
       setSelectedReceptions([]);
       setGuideItems([]);
+      setClientQuery('');
+      setDescriptionQuery('');
+      setReady([]);
+      setGuide((current) => ({
+        ...current,
+        direccion: '',
+        idDistrito: 0,
+        distritoNombre: '',
+        ordenCompra: '',
+        observaciones: '',
+        idEmpleado: null,
+        idMotivoTraslado: defaultVentaMotivoId(catalogs.motivos)
+      }));
+      const next = await fcLegacyWorkflowService.nextInternalGuide(guide.serie).catch(() => null);
+      if (next) setNextInternalGuide(next.serieNumero);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No se pudo crear la guia interna.');
     } finally { setLoading(false); }
@@ -307,7 +330,7 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
               <label>O/C<input value={guide.ordenCompra} onChange={(event) => setGuide({ ...guide, ordenCompra: event.target.value })} /></label>
               <label>Motivo<select value={guide.idMotivoTraslado} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idMotivoTraslado: Number(event.target.value) })}>{catalogs.motivos.map((row) => <option key={row.idMotivoTraslado} value={row.idMotivoTraslado}>{row.nombre}</option>)}</select></label>
               <label className="legacy-wide-field">Direccion entrega<input value={guide.direccion} onChange={(event) => setGuide({ ...guide, direccion: event.target.value })} /></label>
-              <label className="legacy-short-field">Distrito fiscal<input type="number" min="1" value={guide.idDistrito || ''} onChange={(event) => setGuide({ ...guide, idDistrito: Number(event.target.value) })} /></label>
+              <label className="legacy-short-field">Distrito fiscal<input value={guide.distritoNombre || (guide.idDistrito ? `Distrito ${guide.idDistrito}` : '')} readOnly placeholder="Se completa al seleccionar OT" /></label>
               <label>Vendedor<select value={guide.idEmpleado ?? ''} disabled={catalogsLoading} onChange={(event) => setGuide({ ...guide, idEmpleado: event.target.value ? Number(event.target.value) : null })}><option value="">Seleccione vendedor</option>{catalogs.vendedores.map((row) => <option key={row.idEmpleado} value={row.idEmpleado}>{row.nombre}</option>)}</select></label>
               <label className="legacy-wide-field legacy-lookup-field">Descripcion<div><input value={descriptionQuery || guideItems[0]?.descripcion || ''} placeholder="Escribe OT, OV o descripcion" onChange={(event) => searchReadyFromDescription(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void openPicker('ready', descriptionQuery); }} /><button type="button" className="icon-button" onClick={() => void openPicker('ready', descriptionQuery)} title="Seleccionar OT recepcionada"><Search size={17} /></button></div></label>
               <label className="legacy-wide-field">Observaciones<input maxLength={50} value={guide.observaciones} onChange={(event) => setGuide({ ...guide, observaciones: event.target.value })} placeholder="Maximo 50 caracteres en Ychiscom" /></label>
@@ -322,8 +345,79 @@ export function FcLegacyWorkflowPage({ mode }: Props) {
       {picker === 'work-orders' && <LegacyPickerModal title={`Seleccionar OT / OV${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={workOrders.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por OT u OV"><WorkOrderTable rows={workOrders} onSelect={chooseOt} /></LegacyPickerModal>}
       {picker === 'pending' && <LegacyPickerModal title="Pre-guias pendientes de aceptacion" query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={pending.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o cliente"><ReceptionTable rows={pending} actionLabel="Aceptar" disabled={!writeEnabled || loading} onAction={acceptPreGuide} /></LegacyPickerModal>}
       {picker === 'ready' && <LegacyPickerModal title={`OT recepcionadas${selectedClient ? ` - ${selectedClient.cliente}` : ''}`} query={modalQuery} setQuery={setModalQuery} loading={loading} resultCount={ready.length} onSearch={() => void loadPicker()} onClose={() => setPicker(null)} placeholder="Buscar por recepcion, OT, OV o descripcion" footer={<button type="button" className="primary-button" onClick={() => setPicker(null)}>Usar {selectedIds.length} seleccionada(s)</button>}><ReadyReceptionOvPicker rows={ready} selectedIds={selectedIds} onToggle={toggleReception} /></LegacyPickerModal>}
+      {successInternalGuide && (
+        <InternalGuideSuccessModal
+          serieNumero={successInternalGuide.serieNumero}
+          onClose={() => setSuccessInternalGuide(null)}
+        />
+      )}
     </section>
   );
+}
+
+function InternalGuideSuccessModal({ serieNumero, onClose }: { serieNumero: string; onClose: () => void }) {
+  function goToGre() {
+    onClose();
+    window.location.hash = `/guias/nueva?type=guia&q=${encodeURIComponent(serieNumero)}`;
+  }
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="internal-guide-success-title">
+      <section className="success-modal">
+        <button type="button" className="success-modal-close" aria-label="Cerrar" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <div className="success-modal-icon">
+          <CheckCircle2 size={44} />
+        </div>
+        <h2 id="internal-guide-success-title">Guia fisica emitida</h2>
+        <div className="success-modal-serie">{serieNumero}</div>
+        <p>La guia interna fue registrada en Ychiscom. Ya puede buscarse en GRE como guia fisica.</p>
+        <div className="success-modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cerrar
+          </button>
+          <button type="button" className="tool-button primary-tool" onClick={goToGre}>
+            <FileText size={16} />
+            Ir a GRE
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function defaultVentaMotivoId(motivos: FcLegacyCatalogs['motivos']) {
+  return motivos.find((motivo) => motivo.nombre.trim().toUpperCase() === 'VENTA')?.idMotivoTraslado
+    ?? motivos.find((motivo) => motivo.nombre.toUpperCase().includes('VENTA'))?.idMotivoTraslado
+    ?? motivos[0]?.idMotivoTraslado
+    ?? 1;
+}
+
+function sortLegacyMotivos(motivos: FcLegacyCatalogs['motivos']) {
+  const order = [
+    'VENTA',
+    'COMPRA',
+    'DEVOLUCION',
+    'CONSIGNACION',
+    'IMPORTACION',
+    'TRASLADO DE BIENES PARA TRANSF.',
+    'T. ENTRE ESTABLECIMIENTOS DE LA MISMA EMPRESA',
+    'T. POR EMISOR ITINERANTE DE COMP. DE PAGO',
+    'OTROS'
+  ];
+  const weight = (name: string) => {
+    const normalized = name.trim().toUpperCase();
+    const exact = order.indexOf(normalized);
+    if (exact >= 0) return exact;
+    const partial = order.findIndex((item) => normalized.includes(item) || item.includes(normalized));
+    return partial >= 0 ? partial : order.length;
+  };
+
+  return [...motivos].sort((left, right) => {
+    const byWeight = weight(left.nombre) - weight(right.nombre);
+    return byWeight !== 0 ? byWeight : left.nombre.localeCompare(right.nombre);
+  });
 }
 
 function LegacyFlowSteps({ current }: { current: 1 | 2 }) {
@@ -418,8 +512,10 @@ function ReadyReceptionOvPicker({ rows, selectedIds, onToggle }: { rows: FcLegac
           <tbody>
             {groups.length === 0 ? (
               <tr><td className="empty-row" colSpan={6}>Sin resultados</td></tr>
-            ) : pager.visibleRows.map((group) => (
-              <tr key={group.key} onClick={() => setActiveGroup(group)}>
+            ) : pager.visibleRows.map((group) => {
+              const groupSelected = group.rows.some((row) => selectedIds.includes(row.idRecepcionOT));
+              return (
+              <tr key={group.key} className={groupSelected ? 'legacy-row-selected' : ''} onClick={() => setActiveGroup(group)}>
                 <td>▶</td>
                 <td>{group.ovNumero}</td>
                 <td>{group.formato || '-'}</td>
@@ -427,7 +523,8 @@ function ReadyReceptionOvPicker({ rows, selectedIds, onToggle }: { rows: FcLegac
                 <td>{group.numCopias || '-'}</td>
                 <td>{group.estadoGuia}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         <TablePager {...pager} />

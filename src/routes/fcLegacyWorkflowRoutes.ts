@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { AppConfig } from '../config/env.js';
 import { FcLegacyWorkflowService } from '../services/fcLegacyWorkflowService.js';
-import { validationIssues } from '../utils/sanitize.js';
+import { sanitizeValue, validationIssues } from '../utils/sanitize.js';
 
 const preGuideSchema = z.object({
   numeroOt: z.string().trim().min(1).max(11),
@@ -95,7 +95,17 @@ export function fcLegacyWorkflowRoutes(
       const parsed = internalGuideSchema.safeParse(req.body);
       if (!parsed.success) return void res.status(400).json({ error: 'VALIDATION_ERROR', issues: validationIssues(parsed.error) });
       res.json({ ok: true, internalGuide: await service.createInternalGuide(parsed.data) });
-    } catch (error) { next(error); }
+    } catch (error) {
+      res.status(500).json({
+        error: 'FC_LEGACY_INTERNAL_GUIDE_ERROR',
+        message: sanitizeValue(error instanceof Error ? error.message : String(error), [
+          config.existingGreApiToken,
+          config.greFcDb.password,
+          config.ychiDb.password,
+          config.bizlinksDb.password
+        ])
+      });
+    }
   });
   return router;
 }

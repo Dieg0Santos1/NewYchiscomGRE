@@ -1,12 +1,14 @@
-import { apiGet, apiPost } from './ApiClient';
+import { apiGet, apiPatch, apiPost } from './ApiClient';
 import type {
   FlexoCliente,
   FlexoDestino,
   FlexoEmpaque,
+  FlexoEmpaqueAdjustment,
   FlexoGuidePreviewInput,
   FlexoGuidePreviewResponse,
   FlexoGuideSerie,
-  FlexoNextSerie
+  FlexoNextSerie,
+  FlexoUpdateUnidadResponse
 } from '../types/flexo';
 
 type ClientesResponse = {
@@ -22,6 +24,11 @@ type DestinosResponse = {
 type EmpaquesResponse = {
   ok: boolean;
   empaques: FlexoEmpaque[];
+};
+
+type EmpaqueAdjustmentsResponse = {
+  ok: boolean;
+  empaques: FlexoEmpaqueAdjustment[];
 };
 
 export const flexoService = {
@@ -52,5 +59,17 @@ export const flexoService = {
 
   previewGuia(payload: FlexoGuidePreviewInput) {
     return apiPost<FlexoGuidePreviewResponse>('/api/flexo/guias/preview', payload);
+  },
+
+  async searchEmpaqueAdjustments(query: string) {
+    const response = await apiGet<EmpaqueAdjustmentsResponse>(`/api/flexo/ajustes/empaques?q=${encodeURIComponent(query)}`);
+    return response.empaques;
+  },
+
+  updateEmpaqueUnidad(params: { codigoEmpaque: number; codigoProducto: string; unidadMedida: string }) {
+    return apiPatch<FlexoUpdateUnidadResponse>(
+      `/api/flexo/ajustes/empaques/${encodeURIComponent(String(params.codigoEmpaque))}/${encodeURIComponent(params.codigoProducto)}/unidad-medida`,
+      { unidadMedida: params.unidadMedida }
+    );
   }
 };

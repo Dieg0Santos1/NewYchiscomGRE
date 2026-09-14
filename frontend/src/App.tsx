@@ -16,7 +16,8 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
   const module = route.startsWith('/flexo') ? 'flexo' : route.startsWith('/traslado') ? 'traslado' : 'fc';
   const routes = module === 'flexo'
     ? {
-        guias: '/flexo/guias/nueva',
+        ajustes: '/flexo/ajustes',
+        guias: '/flexo/ajustes',
         facturas: '/flexo/facturas',
         reportes: '/flexo/reportes',
         especiales: '/reportes/especiales'
@@ -39,7 +40,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
     if (nextModule === module && !isAdminRoute) return;
     onNavigate(
       nextModule === 'flexo'
-        ? '/flexo/guias/nueva'
+        ? '/flexo/ajustes'
         : nextModule === 'traslado'
           ? '/traslado/guias/nueva'
           : '/guias/nueva'
@@ -82,14 +83,23 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
               </a>
             </>
           )}
-          {!isAdminRoute && <a
+          {!isAdminRoute && module === 'flexo' && (
+            <a
+              className={isActive('/flexo/ajustes')}
+              href="#/flexo/ajustes"
+              onClick={() => onNavigate('/flexo/ajustes')}
+            >
+              Ajustes
+            </a>
+          )}
+          {!isAdminRoute && module !== 'flexo' && <a
               className={isActive(routes.guias)}
               href={`#${routes.guias}`}
               onClick={() => onNavigate(routes.guias)}
             >
               {module === 'fc' ? 'GRE' : 'Guias'}
             </a>}
-          {!isAdminRoute && module !== 'traslado' && (
+          {!isAdminRoute && module !== 'traslado' && module !== 'flexo' && (
             <a
               className={isActive(routes.facturas)}
               href={`#${routes.facturas}`}
@@ -98,7 +108,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
               Facturas
             </a>
           )}
-          {!isAdminRoute && <a
+          {!isAdminRoute && module !== 'flexo' && <a
             className={isActive(routes.reportes)}
             href={`#${routes.reportes}`}
             onClick={() => onNavigate(routes.reportes)}

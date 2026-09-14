@@ -206,6 +206,46 @@ describe('POST /api/gre-formularios/declarar-test', () => {
       user: 'qa-formularios'
     });
   });
+
+  it('conserva la trazabilidad Ychiscom al declarar desde guia fisica', async () => {
+    const declarar = vi.fn().mockResolvedValue({
+      operationId,
+      generatedSerieNumeroGuia: 'T001-00000096',
+      insertedHeader: true,
+      insertedItems: 1,
+      activated: true,
+      status: {
+        serieNumeroGuia: 'T001-00000096',
+        bl_estadoRegistro: 'A'
+      }
+    });
+    const input = {
+      ...validGreInput,
+      trazabilidadYchiscom: {
+        origenOperacion: 'YCHISCOM_AUTOMATICO',
+        idGuiaFisicaYchiscom: 7727,
+        numeroGuiaFisica: '001-0112948',
+        idDocumentoYchiscom: 998877
+      }
+    } as const;
+    const app = createApp({
+      config: { ...testConfig, dryRun: false, directDbInsertEnabled: true },
+      greFormularioDeclararTestService: { declarar }
+    });
+
+    await request(app)
+      .post('/api/gre-formularios/declarar-test')
+      .set('X-Confirm-Send', 'YES')
+      .set('X-Operation-Id', operationId)
+      .set('X-User', 'qa-formularios')
+      .send(input)
+      .expect(200);
+
+    expect(declarar).toHaveBeenCalledWith(input, {
+      operationId,
+      user: 'qa-formularios'
+    });
+  });
 });
 
 describe('POST /api/gre-formularios/guides/:serieNumeroGuia/manual-sunat-accepted', () => {

@@ -48,6 +48,33 @@ export type FlexoValidation = {
   message: string;
 };
 
+export type FlexoEmpaqueAdjustment = {
+  id: string;
+  codigoEmpaque: number;
+  codigoProducto: string;
+  descripcion: string;
+  cantidad: number;
+  unidadMedida: string;
+  moneda: string;
+  ordenGuia: string;
+  ordenFactura: string;
+  ticket: string;
+  ordenCompra: string;
+  clienteNumeroDocumento: string;
+  clienteRazonSocial: string;
+  guiaRemision: string | null;
+  guiaFactura: string | null;
+};
+
+export type FlexoUpdateUnidadResponse = {
+  ok: boolean;
+  codigoEmpaque: number;
+  codigoProducto: string;
+  unidadAnterior: string;
+  unidadNueva: string;
+  updated: true;
+};
+
 export type FlexoGuidePreviewInput = {
   serieNumeroGuia: string;
   fechaEmision: string;

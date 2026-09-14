@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { FlexoAdjustmentsPage } from './pages/FlexoAdjustmentsPage';
 import { FlexoGuidePage } from './pages/FlexoGuidePage';
 import { FlexoInvoicePage } from './pages/FlexoInvoicePage';
 import { FcLegacyWorkflowPage } from './pages/FcLegacyWorkflowPage';
@@ -23,6 +24,7 @@ const routes = new Set([
   '/guias/listado',
   '/facturas',
   '/reportes/especiales',
+  '/flexo/ajustes',
   '/flexo/guias/nueva',
   '/flexo/facturas',
   '/flexo/reportes',
@@ -32,7 +34,8 @@ const routes = new Set([
 ]);
 
 function readRoute() {
-  const route = window.location.hash.replace(/^#/, '') || '/guias/nueva';
+  const routeWithQuery = window.location.hash.replace(/^#/, '') || '/guias/nueva';
+  const route = routeWithQuery.split('?')[0] || '/guias/nueva';
   return routes.has(route) ? route : '/guias/nueva';
 }
 
@@ -59,7 +62,7 @@ function Shell() {
         ? requested
         : defaultRoute(session.user.modules);
       setRoute(nextRoute);
-      if (window.location.hash !== `#${nextRoute}`) window.location.hash = nextRoute;
+      if (readRoute() !== nextRoute) window.location.hash = nextRoute;
     };
     const onHashChange = () => syncRoute();
     window.addEventListener('hashchange', onHashChange);
@@ -94,6 +97,8 @@ function Shell() {
         ? <FcLegacyWorkflowPage mode="pre-guide" />
         : route === '/fc/guias-internas'
           ? <FcLegacyWorkflowPage mode="internal-guide" />
+          : route === '/flexo/ajustes'
+            ? <FlexoAdjustmentsPage />
           : route === '/flexo/guias/nueva'
             ? <FlexoGuidePage />
         : route === '/flexo/facturas'
@@ -125,12 +130,13 @@ function moduleForRoute(route: string): AuthModule {
 
 function isRouteAllowed(route: string, user: AuthUser) {
   if (route === '/administracion/accesos') return user.administrator;
+  if (route.startsWith('/flexo') && route !== '/flexo/ajustes') return false;
   return routes.has(route) && user.modules.includes(moduleForRoute(route));
 }
 
 function defaultRoute(modules: AuthModule[]) {
   if (modules.includes('fc')) return '/guias/nueva';
-  if (modules.includes('flexo')) return '/flexo/guias/nueva';
+  if (modules.includes('flexo')) return '/flexo/ajustes';
   return '/traslado/guias/nueva';
 }
 

@@ -2735,7 +2735,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 .legacy-row-selected td {
-  background: #eff6ff;
+  background: #dcfce7;
+  color: #14532d;
+  font-weight: 700;
 }
 
 .select-row-button {
