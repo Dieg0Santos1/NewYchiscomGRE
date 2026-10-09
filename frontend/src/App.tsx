@@ -43,7 +43,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
     if (nextModule === module && !isAdminRoute) return;
     onNavigate(
       nextModule === 'flexo'
-        ? '/flexo/ajustes'
+        ? '/flexo/guias/nueva'
         : nextModule === 'traslado'
           ? '/traslado/guias/nueva'
           : nextModule === 'especiales'
