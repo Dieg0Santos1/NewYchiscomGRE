@@ -1,4 +1,4 @@
-export type GuideStatus = 'Pendiente' | 'Generado' | 'Enviado' | 'En proceso' | 'Aceptado' | 'Rechazado' | 'Error';
+export type GuideStatus = 'Pendiente' | 'Generado' | 'Enviado' | 'En proceso' | 'Aceptado' | 'Rechazado' | 'Error' | 'Anulado';
 export type BackendGuideStatus = 'GENERADO' | 'ENVIADO' | 'EN_PROCESO' | 'ACEPTADA' | 'RECHAZADA' | 'ERROR';
 
 export type ProductItem = {
@@ -165,6 +165,7 @@ export type GreInputDto = {
 export type GuideStatusResult = {
   operationId: string;
   serieNumeroGuia: string | null;
+  cliente: string | null;
   estado: BackendGuideStatus;
   estadoOperacion: string | null;
   estadoEnvio: string | null;

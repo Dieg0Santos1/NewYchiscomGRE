@@ -4,6 +4,7 @@ import App from './App';
 import { FlexoAdjustmentsPage } from './pages/FlexoAdjustmentsPage';
 import { FlexoGuidePage } from './pages/FlexoGuidePage';
 import { FlexoInvoicePage } from './pages/FlexoInvoicePage';
+import { FlexoReportsPage } from './pages/FlexoReportsPage';
 import { FcLegacyWorkflowPage } from './pages/FcLegacyWorkflowPage';
 import { GuideListPage } from './pages/GuideListPage';
 import { InvoicePage } from './pages/InvoicePage';
@@ -104,7 +105,7 @@ function Shell() {
         : route === '/flexo/facturas'
           ? <FlexoInvoicePage />
           : route === '/flexo/reportes'
-            ? <FlexoPlaceholder title="Reportes Flexo" />
+            ? <FlexoReportsPage />
             : route === '/traslado/guias/nueva'
               ? <TrasladoGuidePage />
               : route === '/traslado/reportes'
@@ -130,7 +131,6 @@ function moduleForRoute(route: string): AuthModule {
 
 function isRouteAllowed(route: string, user: AuthUser) {
   if (route === '/administracion/accesos') return user.administrator;
-  if (route.startsWith('/flexo') && route !== '/flexo/ajustes') return false;
   return routes.has(route) && user.modules.includes(moduleForRoute(route));
 }
 

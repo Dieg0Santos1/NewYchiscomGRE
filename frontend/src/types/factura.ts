@@ -4,6 +4,15 @@ export type FcFacturaCliente = {
   numeroDocumento: string;
   razonSocial: string;
   fuente: 'GRE_FC' | 'BIZLINKS' | 'CLIENTE_YCHIDB3' | 'PROVEEDOR';
+  direccionFiscal?: {
+    direccion: string;
+    ubigeo: string;
+    distrito: string;
+    provincia: string;
+    departamento: string;
+    pais: string;
+    fuente: 'AAA_ADQUIRIENTE' | 'FACTURA_ACEPTADA' | 'YCHIDB3';
+  } | null;
 };
 
 export type FcFacturaVendedor = {
@@ -30,27 +39,35 @@ export type FcFacturaGuiaPendiente = {
     tipoDocumento: string;
     numeroDocumento: string;
     razonSocial: string;
+    direccionFiscal?: FcFacturaCliente['direccionFiscal'];
   };
   estadoSunat: 'ACEPTADA';
   items: FcFacturaItem[];
 };
 
+export type FcFacturaDetraccion = '000' | '037' | '025';
+export type FcFacturaMoneda = 'PEN' | 'USD';
 export type FcFacturaPreviewInput = {
   serie: 'FF01';
   numero: string;
   fechaEmision: string;
-  moneda: 'PEN';
+  fechaVencimiento?: string;
+  moneda: FcFacturaMoneda;
+  tipoCambio?: number | null;
   formaPago: string;
+  diasPago: number;
   cuenta: string;
-  tipoDetraccion: '037' | '025';
+  tipoDetraccion: FcFacturaDetraccion;
   tipoExclusionProducto: 'GRAVADA' | 'GRATUITA' | 'EXONERADA' | 'INAFECTA';
   vendedor: FcFacturaVendedor;
   ordenCompra: string;
+  numeroRegistro: string;
   observaciones: string;
   cliente: {
     tipoDocumento: string;
     numeroDocumento: string;
     razonSocial: string;
+    direccionFiscal?: FcFacturaCliente['direccionFiscal'];
   };
   guias: Array<{ serieNumeroGuia: string }>;
   items: FcFacturaItem[];
@@ -71,6 +88,16 @@ export type FcFacturaPreviewResponse = {
     severity: 'ok' | 'warning' | 'error';
     message: string;
   }>;
+  financial: {
+    moneda: FcFacturaMoneda;
+    tipoCambio: number;
+    diasPago: number;
+    fechaVencimiento: string;
+    totalEquivalentePen: number;
+    detraccionMonedaDocumento: number;
+    detraccionPen: number;
+    netoPendiente: number;
+  };
   payload: unknown;
   procedurePlan: unknown;
 };

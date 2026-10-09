@@ -39,7 +39,7 @@ export type FlexoNextSerie = {
   numero: string;
   serieNumeroGuia: string;
   reserved: false;
-  source: 'BIZLINKS_SPE_DESPATCH';
+  source: 'AAA_TIPODOCUMENTO' | 'BIZLINKS_SPE_DESPATCH';
 };
 
 export type FlexoValidation = {
@@ -73,6 +73,122 @@ export type FlexoUpdateUnidadResponse = {
   unidadAnterior: string;
   unidadNueva: string;
   updated: true;
+};
+
+export type FlexoCatalogWarning = {
+  source: string;
+  message: string;
+};
+
+export type FlexoCatalogsResponse = {
+  ok: boolean;
+  warnings: FlexoCatalogWarning[];
+  choferes: Array<{
+    id: string;
+    tipoDocumento: string;
+    numeroDocumento: string;
+    nombres: string;
+    apellidos: string;
+    licencia: string;
+    placa: string;
+  }>;
+  motivos: Array<{
+    id: string;
+    codigo: string;
+    descripcion: string;
+  }>;
+  origenes: Array<{
+    id: string;
+    numeroDocumentoEmisor: string;
+    ubigeo: string;
+    direccion: string;
+    codigoLocalAnexo: string;
+  }>;
+  transportistas: Array<{
+    id: string;
+    tipoDocumento: string;
+    numeroDocumento: string;
+    razonSocial: string;
+  }>;
+  detracciones: Array<{
+    id: string;
+    codigo: string;
+    descripcion: string;
+    porcentaje: number;
+  }>;
+  empresas: Array<{
+    id: string;
+    numeroDocumentoEmisor: string;
+    tipoDocumentoEmisor: string;
+    razonSocial: string;
+    ubigeo: string;
+    direccion: string;
+  }>;
+  tiposDocumento: Array<{
+    id: string;
+    tipoDocumento: string;
+    descripcion: string;
+    serie: string;
+    correlativo: number;
+  }>;
+};
+
+export type FlexoReportStatus = 'PENDIENTE' | 'EN_PROCESO' | 'ACEPTADA' | 'RECHAZADA' | 'ERROR' | 'ANULADA';
+
+export type FlexoReportGuide = {
+  tipo: 'GRE';
+  serieNumero: string;
+  fecha: string | null;
+  clienteDocumento: string;
+  clienteNombre: string;
+  estado: FlexoReportStatus;
+  estadoBizlinks: string;
+  estadoProceso: string;
+  mensaje: string;
+  pdfDisponible: boolean;
+  empaques: number;
+  items: number;
+  itemsFacturados: number;
+  trazabilidadPortal: boolean;
+  manualSunatMessageAllowed: boolean;
+};
+
+export type FlexoReportInvoice = {
+  tipo: 'FE';
+  serieNumero: string;
+  fecha: string | null;
+  clienteDocumento: string;
+  clienteNombre: string;
+  estado: FlexoReportStatus;
+  estadoBizlinks: string;
+  estadoProceso: string;
+  mensaje: string;
+  pdfDisponible: boolean;
+  guias: number;
+  items: number;
+  total: number;
+  trazabilidadPortal: boolean;
+};
+
+export type FlexoReportCancellation = {
+  id: number;
+  tipoDocumentoOrigen: string;
+  serieNumeroDocumento: string;
+  tipoBaja: string;
+  estado: string;
+  motivo: string;
+  confirmadoExternamente: boolean;
+  solicitadoEn: string;
+  confirmadoEn: string | null;
+};
+
+export type FlexoReportsResponse = {
+  ok: boolean;
+  generatedAt: string;
+  guias: FlexoReportGuide[];
+  facturas: FlexoReportInvoice[];
+  bajas: FlexoReportCancellation[];
+  warnings: string[];
 };
 
 export type FlexoGuidePreviewInput = {
@@ -111,4 +227,31 @@ export type FlexoGuidePreviewResponse = {
   serieNumeroGuia: string;
   validations: FlexoValidation[];
   payload: FlexoGuidePreviewInput;
+};
+
+export type FlexoGuidePrepareResponse = {
+  ok: boolean;
+  operationId: string;
+  operacionDbId: number;
+  serieNumeroGuia: string;
+  estado: 'BORRADOR' | 'INSERTADO_BIZLINKS' | 'ENVIADO' | 'ACEPTADA' | 'RECHAZADA' | 'ERROR';
+  reused: boolean;
+  insertedItems: number;
+  writesBizlinks: false;
+  writesEmpaqueDetalle: false;
+  message: string;
+};
+
+export type FlexoGuideDeclareResponse = {
+  ok: boolean;
+  operationId: string;
+  operacionDbId: number;
+  serieNumeroGuia: string;
+  estado: 'ENVIADO';
+  reused: boolean;
+  insertedItems: number;
+  linkedItems: number;
+  correlativo: number;
+  status: unknown;
+  message: string;
 };

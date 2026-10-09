@@ -5,11 +5,21 @@ type DeclarationSuccessModalProps = {
   serieNumero: string;
   onClose: () => void;
   reportsPath?: string;
+  title?: string;
+  message?: string;
 };
 
-export function DeclarationSuccessModal({ documentLabel, serieNumero, onClose, reportsPath = '/guias/listado' }: DeclarationSuccessModalProps) {
+export function DeclarationSuccessModal({
+  documentLabel,
+  serieNumero,
+  onClose,
+  reportsPath = '/guias/listado',
+  title,
+  message
+}: DeclarationSuccessModalProps) {
   const isInvoice = documentLabel.toLowerCase().includes('factura');
-  const title = isInvoice ? 'Factura enviada' : `${documentLabel} declarada`;
+  const modalTitle = title ?? (isInvoice ? 'Factura enviada' : `${documentLabel} declarada`);
+  const modalMessage = message ?? 'El documento fue enviado a Bizlinks. Puede seguir el proceso, revisar la respuesta SUNAT y abrir el PDF desde Reportes.';
 
   function goToReports() {
     onClose();
@@ -25,12 +35,12 @@ export function DeclarationSuccessModal({ documentLabel, serieNumero, onClose, r
         <div className="success-modal-icon">
           <CheckCircle2 size={44} />
         </div>
-        <h2 id="declaration-success-title">{title}</h2>
+        <h2 id="declaration-success-title">{modalTitle}</h2>
         <div className="success-modal-serie">{serieNumero}</div>
-        <p>El documento fue enviado a Bizlinks. Puede seguir el proceso, revisar la respuesta SUNAT y abrir el PDF desde Reportes.</p>
+        <p>{modalMessage}</p>
         <div className="success-modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>
-            Cerrar
+            Aceptar
           </button>
           <button type="button" className="tool-button primary-tool" onClick={goToReports}>
             <FileText size={16} />

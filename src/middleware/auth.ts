@@ -52,7 +52,7 @@ function modulesForRequest(req: Request): AuthModule[] {
   const path = req.path;
 
   if (path.startsWith('/api/gre-traslados')) return ['traslado'];
-  if (path.startsWith('/api/flexo-facturas') || path.startsWith('/api/flexo/')) return ['flexo'];
+  if (path.startsWith('/api/flexo-facturas') || path.startsWith('/api/flexo-notas-credito') || path.startsWith('/api/flexo/')) return ['flexo'];
   if (req.method === 'GET' && path === '/api/fc-facturas/clientes/search') return ['fc', 'traslado'];
   if (path.startsWith('/api/catalogos/')) return ['fc', 'traslado'];
   if (

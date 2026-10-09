@@ -5,11 +5,16 @@ type FormFieldProps = {
   required?: boolean;
   children: ReactNode;
   wide?: boolean;
+  className?: string;
 };
 
-export function FormField({ label, required, children, wide }: FormFieldProps) {
+export function FormField({ label, required, children, wide, className }: FormFieldProps) {
+  const classes = ['form-field'];
+  if (wide) classes.push('form-field-wide');
+  if (className) classes.push(className);
+
   return (
-    <label className={wide ? 'form-field form-field-wide' : 'form-field'}>
+    <label className={classes.join(' ')}>
       <span>
         {label}
         {required && <strong> (*)</strong>}

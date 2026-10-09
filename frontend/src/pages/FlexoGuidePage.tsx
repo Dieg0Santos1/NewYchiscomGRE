@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Eye, PackageSearch, RefreshCw, Search, Send } from 'lucide-react';
 import { CharacterCounter } from '../components/CharacterCounter';
+import { DeclarationSuccessModal } from '../components/DeclarationSuccessModal';
 import { FlexoGuidePreviewModal } from '../components/FlexoGuidePreviewModal';
 import { FormField } from '../components/FormField';
 import { currentTime, todayDate } from '../data/defaults';
 import {
   SUNAT_GRE_ITEM_DESCRIPTION_MAX_LENGTH,
   SUNAT_GRE_ITEM_DESCRIPTION_MIN_LENGTH,
-  SUNAT_GRE_OBSERVATION_MAX_LENGTH,
-  SUNAT_GRE_TRANSFER_REASONS
+  SUNAT_GRE_OBSERVATION_MAX_LENGTH
 } from '../data/sunatGre';
-import { driverService } from '../services/DriverService';
 import { flexoService } from '../services/FlexoService';
 import type { DriverCatalogItem } from '../types/gre';
 import type {
+  FlexoCatalogsResponse,
   FlexoCliente,
   FlexoDestino,
   FlexoEmpaque,
@@ -22,8 +22,6 @@ import type {
   FlexoGuidePreviewResponse
 } from '../types/flexo';
 import { driverIdentity, driverPlates, uniqueDrivers } from '../utils/drivers';
-
-const transferReasons = SUNAT_GRE_TRANSFER_REASONS;
 
 type FlexoGuideState = {
   serie: FlexoGuideSerie;
@@ -80,13 +78,17 @@ export function FlexoGuidePage() {
   const [clientes, setClientes] = useState<FlexoCliente[]>([]);
   const [cliente, setCliente] = useState<FlexoCliente | null>(null);
   const [destinos, setDestinos] = useState<FlexoDestino[]>([]);
+  const [catalogs, setCatalogs] = useState<FlexoCatalogsResponse | null>(null);
+  const [catalogWarnings, setCatalogWarnings] = useState<string[]>([]);
   const [drivers, setDrivers] = useState<DriverCatalogItem[]>([]);
   const [message, setMessage] = useState('');
   const [loadingClientes, setLoadingClientes] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [declaring, setDeclaring] = useState(false);
   const [preview, setPreview] = useState<FlexoGuidePreviewResponse | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
+  const [sentGuide, setSentGuide] = useState<{ serieNumeroGuia: string } | null>(null);
   const [empaqueModalOpen, setEmpaqueModalOpen] = useState(false);
 
   const items = useMemo(() => form.empaques.flatMap((item) => item.items), [form.empaques]);
@@ -96,10 +98,22 @@ export function FlexoGuidePage() {
     [drivers, form.selectedDriverId]
   );
   const selectedClientLabel = cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : '';
+  const empresaLabel = catalogs?.empresas[0]
+    ? `${catalogs.empresas[0].numeroDocumentoEmisor}-${catalogs.empresas[0].tipoDocumentoEmisor}-${catalogs.empresas[0].razonSocial}`
+    : '20259402965-6-YCHIFORMAS S.A.';
+  const origenLabel = catalogs?.origenes[0]
+    ? `${catalogs.origenes[0].ubigeo}-${catalogs.origenes[0].direccion}`
+    : '140109-AV. LUNA PIZARRO NRO. 1328(1332-1336-1340 PUERTA DE INGRESO 1340)';
+  const transferReasons = catalogs?.motivos.map((item) => ({
+    code: item.codigo,
+    description: item.descripcion,
+    label: `${item.codigo} - ${item.descripcion}`
+  })) ?? [];
+  const hasValidDestination = /^\d{6}$/.test(form.destino.ubigeo.trim()) && form.destino.direccion.trim().length > 0;
+  const hasDriverReady = Boolean(form.conductor.numeroDocumento && form.conductor.licencia && form.conductor.placa);
   const canPreview = Boolean(
     cliente &&
-    form.destino.ubigeo &&
-    form.destino.direccion &&
+    hasValidDestination &&
     form.motivoTraslado &&
     form.pesoBruto > 0 &&
     form.numeroBultos > 0 &&
@@ -110,12 +124,22 @@ export function FlexoGuidePage() {
     ) &&
     form.empaques.length > 0
   );
+  const canDeclare = canPreview && hasDriverReady;
+  const declareBlocker = !hasValidDestination
+    ? 'Seleccione un destino oficial con ubigeo de 6 digitos.'
+    : !hasDriverReady
+    ? 'Seleccione chofer, licencia y placa antes de declarar.'
+    : '';
 
   useEffect(() => {
     void loadNextSerie();
-    driverService.listPrivateDrivers()
-      .then(setDrivers)
-      .catch((error) => setMessage(error instanceof Error ? error.message : 'No se pudo cargar choferes.'));
+    flexoService.listCatalogs()
+      .then((result) => {
+        setCatalogs(result);
+        setCatalogWarnings(result.warnings.map((warning) => `${warning.source}: ${warning.message}`));
+        setDrivers(result.choferes);
+      })
+      .catch((error) => setMessage(error instanceof Error ? error.message : 'No se pudo cargar catalogos Flexo.'));
   }, []);
 
   useEffect(() => {
@@ -184,7 +208,7 @@ export function FlexoGuidePage() {
         ordenCompra: '',
         empaques: []
       }));
-      setMessage(result.length > 0 ? 'Cliente seleccionado.' : 'Cliente seleccionado sin destinos historicos.');
+      setMessage(result.length > 0 ? 'Cliente seleccionado.' : 'Cliente seleccionado sin destinos oficiales.');
     } catch (error) {
       setDestinos([]);
       setMessage(error instanceof Error ? error.message : 'No se pudo cargar destinos del cliente.');
@@ -221,12 +245,16 @@ export function FlexoGuidePage() {
 
   function assignEmpaques(nextEmpaques: FlexoEmpaque[]) {
     const purchaseOrders = [...new Set(nextEmpaques.map((item) => item.ordenCompra).filter(Boolean))];
+    const empaqueDestino = nextEmpaques[0]?.destino;
+    const nextDestino = empaqueDestino && /^\d{6}$/.test(empaqueDestino.ubigeo.trim()) && empaqueDestino.direccion.trim()
+      ? empaqueDestino
+      : form.destino;
     invalidatePreview();
     setForm((current) => ({
       ...current,
       empaques: nextEmpaques,
       ordenCompra: purchaseOrders.length === 1 ? purchaseOrders[0] ?? '' : current.ordenCompra,
-      destino: nextEmpaques[0]?.destino.ubigeo ? nextEmpaques[0].destino : current.destino
+      destino: nextDestino
     }));
     setEmpaqueModalOpen(false);
     setMessage(nextEmpaques.length > 0 ? `${nextEmpaques.length} empaque(s) asignados.` : 'Sin empaques asignados.');
@@ -247,6 +275,29 @@ export function FlexoGuidePage() {
       setMessage(error instanceof Error ? error.message : 'No se pudo generar vista previa Flexo.');
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function declareGuia() {
+    if (!cliente) return;
+    if (!canDeclare) {
+      setMessage(declareBlocker || 'Complete los datos obligatorios antes de declarar.');
+      return;
+    }
+    setDeclaring(true);
+    setMessage('Declarando GRE Flexo...');
+
+    try {
+      const result = await flexoService.declareGuia(buildPreviewPayload(cliente));
+      setPreviewConfirmed(false);
+      setMessage(`${result.message} ${result.insertedItems} item(s), ${result.linkedItems} empaque(s) vinculados.`);
+      setSentGuide({ serieNumeroGuia: result.serieNumeroGuia });
+      setForm((current) => ({ ...current, empaques: [] }));
+      void loadNextSerie(form.serie);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No se pudo declarar la GRE Flexo.');
+    } finally {
+      setDeclaring(false);
     }
   }
 
@@ -333,7 +384,7 @@ export function FlexoGuidePage() {
 
       <div className="form-grid flexo-form-grid">
         <FormField label="EMPRESA" required>
-          <input className="auto-field" value="20259402965-6-YCHIFORMAS S.A." readOnly />
+          <input className="auto-field" value={empresaLabel} readOnly />
         </FormField>
         <FormField label="FECHA EMISION">
           <input
@@ -386,7 +437,7 @@ export function FlexoGuidePage() {
           </div>
         </FormField>
         <FormField label="ORIGEN" required wide>
-          <input className="auto-field" value="140109-AV. LUNA PIZARRO NRO. 1328(1332-1336-1340 PUERTA DE INGRESO 1340)" readOnly />
+          <input className="auto-field" value={origenLabel} readOnly />
         </FormField>
         <FormField label="MODALIDAD" required>
           <select
@@ -467,6 +518,12 @@ export function FlexoGuidePage() {
         </FormField>
       </div>
 
+      {catalogWarnings.length > 0 && (
+        <div className="invoice-message-row">
+          {catalogWarnings.map((warning) => <div key={warning} className="inline-message">{warning}</div>)}
+        </div>
+      )}
+
       <div className="driver-row flexo-driver-row">
         <FormField label="CHOFER">
           <select value={form.selectedDriverId} onChange={(event) => changeDriver(event.target.value)}>
@@ -540,9 +597,9 @@ export function FlexoGuidePage() {
             <Eye size={16} />
             {previewLoading ? 'Validando' : 'Vista previa'}
           </button>
-          <button type="button" className="declare-button" disabled title="Pendiente replicar escritura Flexo con auditoria">
+          <button type="button" className="declare-button" disabled={!canDeclare || declaring} title={declareBlocker || 'Declarar GRE Flexo'} onClick={() => void declareGuia()}>
             <Send size={16} />
-            Declarar bloqueado
+            {declaring ? 'Declarando' : 'Declarar'}
           </button>
           {previewConfirmed && <div className="declare-hint">Vista previa confirmada.</div>}
         </div>
@@ -566,6 +623,16 @@ export function FlexoGuidePage() {
           selected={form.empaques}
           onClose={() => setEmpaqueModalOpen(false)}
           onAssign={assignEmpaques}
+        />
+      )}
+      {sentGuide && (
+        <DeclarationSuccessModal
+          documentLabel="GRE Flexo"
+          serieNumero={sentGuide.serieNumeroGuia}
+          title="GRE enviada"
+          message="La guia fue enviada a Bizlinks y esta en proceso de ser aceptada. Puede revisar el estado SUNAT y abrir el PDF cuando este disponible desde Reportes."
+          reportsPath="/flexo/reportes"
+          onClose={() => setSentGuide(null)}
         />
       )}
     </section>

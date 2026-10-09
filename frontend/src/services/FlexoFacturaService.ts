@@ -2,6 +2,7 @@ import { apiGet, apiPost } from './ApiClient';
 import type {
   FlexoFacturaCliente,
   FlexoFacturaCuenta,
+  FlexoFacturaDeclareResponse,
   FlexoFacturaFormaPago,
   FlexoFacturaGuiaPendiente,
   FlexoFacturaNextSerie,
@@ -57,5 +58,12 @@ export const flexoFacturaService = {
 
   preview(payload: FlexoFacturaPreviewInput) {
     return apiPost<FlexoFacturaPreviewResponse>('/api/flexo-facturas/preview', payload);
+  },
+
+  declare(payload: FlexoFacturaPreviewInput, operationId: string) {
+    return apiPost<FlexoFacturaDeclareResponse>('/api/flexo-facturas/declarar', payload, {
+      'X-Confirm-Flexo-Factura': 'YES',
+      'X-Operation-Id': operationId
+    });
   }
 };

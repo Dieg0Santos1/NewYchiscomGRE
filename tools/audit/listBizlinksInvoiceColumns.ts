@@ -1,7 +1,7 @@
 import { loadEnv } from '../../src/config/env.js';
 import { createBizlinksPool, sql } from '../../src/integrations/bizlinksSql.js';
 
-const interesting = /guia|detrac|operacion|adquir|correo|orden|pago|venta|igv|moneda|estado|unidad|descrip|precio|importe|aux/i;
+const interesting = /guia|detrac|operacion|adquir|correo|orden|pago|venta|igv|moneda|estado|unidad|descrip|precio|importe|aux|url|ticket|process|mensaje|xml|cdr|source/i;
 
 async function main() {
   const config = loadEnv();
@@ -9,7 +9,7 @@ async function main() {
   await pool.connect();
 
   try {
-    for (const tableName of ['SPE_EINVOICEHEADER', 'SPE_EINVOICEDETAIL']) {
+    for (const tableName of ['SPE_EINVOICEHEADER', 'SPE_EINVOICEDETAIL', 'SPE_EINVOICE_RESPONSE', 'SPE_JOB_DOWNLOAD']) {
       const request = new sql.Request(pool);
       request.input('tableName', sql.VarChar(128), tableName);
       const result = await request.query<{ COLUMN_NAME: string }>(`

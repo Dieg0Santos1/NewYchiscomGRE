@@ -17,6 +17,8 @@ type Totals = {
   total: number;
 };
 
+const BANCO_NACION_DETRACCION = '00-099022671';
+
 export function toFcFacturaProcedurePlan(
   input: FcFacturaPreviewInput,
   defaults: GreDefaults,
@@ -42,11 +44,16 @@ function toUspCabeceraFeParams(
   serieNumero: string
 ): StoredProcedureParam[] {
   const firstGuide = input.guias[0]?.serieNumeroGuia ?? '';
-  const dueDate = dueDateFromPayment(input.fechaEmision, input.formaPago);
-  const isCredit = dueDate !== input.fechaEmision;
   const guideReference = firstGuide ? `0${firstGuide}` : null;
   const detraction = detractionSettings(input.tipoDetraccion);
-  const totalDetraction = roundMoney(totals.total * detraction.percent / 100);
+  const detractionInInvoiceCurrency = detraction ? roundMoney(totals.total * detraction.percent / 100) : 0;
+  const totalDetraction = detraction
+    ? roundMoney(detractionInInvoiceCurrency * (input.moneda === 'USD' ? roundMoney(requiredExchangeRate(input)) : 1))
+    : 0;
+  const netPending = roundMoney(totals.total - detractionInInvoiceCurrency);
+  const paymentSchedule = invoicePaymentSchedule(input, { total: netPending });
+  const dueDate = paymentSchedule.dueDate;
+  const isCredit = paymentSchedule.isCredit;
 
   return withDefaults(headerParamNames, {
     NUMERODOCUMENTOEMISOR: defaults.remitente.numeroDocumento,
@@ -58,19 +65,19 @@ function toUspCabeceraFeParams(
     BL_ORIGEN: 'D',
     BL_HASFILERESPONSE: '0',
     CORREOADQUIRIENTE: '-',
-    CORREOEMISOR: '-',
-    DEPARTAMENTOEMISOR: '-',
+    CORREOEMISOR: defaults.remitente.correo,
+    DEPARTAMENTOEMISOR: 'LIMA',
     DIRECCIONEMISOR: defaults.puntoPartida.direccion,
-    DISTRITOEMISOR: '-',
+    DISTRITOEMISOR: 'LA VICTORIA',
     FECHAEMISION: input.fechaEmision,
     NOMBRECOMERCIALEMISOR: defaults.remitente.razonSocial,
     NUMERODOCUMENTOADQUIRIENTE: input.cliente.numeroDocumento,
     PAISEMISOR: 'PE',
-    PROVINCIAEMISOR: '-',
+    PROVINCIAEMISOR: 'LIMA',
     RAZONSOCIALADQUIRIENTE: input.cliente.razonSocial,
     RAZONSOCIALEMISOR: defaults.remitente.razonSocial,
     codigoLeyenda_1: '1000',
-    textoLeyenda_1: moneyLegend(totals.total, input.moneda),
+    textoLeyenda_1: invoiceAmountInWords(totals.total, input.moneda),
     tipoDocumentoAdquiriente: input.cliente.tipoDocumento,
     tipoMoneda: input.moneda,
     totalIGV: money(totals.igv),
@@ -83,31 +90,42 @@ function toUspCabeceraFeParams(
     totalValorVentaNetoOpNoGravada: money(totals.inafecta ?? 0),
     totalvalorVentaNetoOpExporta: '0.00',
     totalVenta: money(totals.total),
-    ubigeoEmisor: defaults.puntoPartida.ubigeo,
-    urbanizacion: '-',
-    tipocambio: input.moneda === 'PEN' ? '1.000' : null,
-    direccionAdquiriente: '-',
+    // FF01 fiscal address verified against accepted invoice FF01-00017146.
+    // The GRE departure ubigeo uses a different legacy catalog.
+    ubigeoEmisor: '150115',
+    urbanizacion: 'FUNDO MATUTE',
+    // Accepted FF01 USD invoices leave this Bizlinks extension empty. The
+    // exchange rate is only used to express the detraction in PEN.
+    tipocambio: null,
+    direccionAdquiriente: input.cliente.direccionFiscal?.direccion ?? '-',
     totalImpuestos: money(totals.igv),
-    tipoOperacion: '0101',
+    // USP_EnviaDocumentoFE sets 9218 for guide invoices; its text must exist.
+    codigoAuxiliar40_1: '9218',
+    textoAuxiliar40_1: input.vendedor.nombre.trim().slice(0, 40) || '-',
+    tipoOperacion: detraction ? '1001' : '0101',
     horaEmision: currentTime(),
     codigoLocalAnexoEmisor: '0000',
     GUIAREMISION: guideReference,
-    ORDENCOMPRA: emptyToNull(input.ordenCompra),
+    ORDENCOMPRA: emptyToDash(input.ordenCompra),
     TIPOGUIAREMISION: firstGuide ? '09' : null,
-    formapago: input.formaPago,
-    ubigeoAdquiriente: '-',
+    // Accepted credit FF01 documents use Bizlinks code 999. The descriptive
+    // payment term remains in local trace data and diasPago drives the quota.
+    formapago: isCredit ? '999' : null,
+    ubigeoAdquiriente: input.cliente.direccionFiscal?.ubigeo ?? '-',
     urbanizacionAdquiriente: '-',
-    provinciaAdquiriente: '-',
-    departamentoAdquiriente: '-',
-    distritoAdquiriente: '-',
-    paisAdquiriente: 'PE',
+    provinciaAdquiriente: input.cliente.direccionFiscal?.provincia ?? '-',
+    departamentoAdquiriente: input.cliente.direccionFiscal?.departamento ?? '-',
+    distritoAdquiriente: input.cliente.direccionFiscal?.distrito ?? '-',
+    paisAdquiriente: input.cliente.direccionFiscal?.pais ?? 'PE',
     facturaPagoNegociable: isCredit ? '1' : '0',
-    montoNetoPendiente: isCredit ? money(totals.total) : null,
-    montoPagoCuota1: isCredit ? money(totals.total) : null,
-    fechaPagoCuota1: isCredit ? dueDate : null,
-    CODIGODETRACCION: detraction.code,
-    PORCENTAJEDETRACCION: money(detraction.percent),
-    TOTALDETRACCION: money(totalDetraction),
+    // USP_CabeceraFE accumulates every cuota into this parameter before
+    // persisting montoNetoPendiente. Start at zero to avoid doubling it.
+    montoNetoPendiente: isCredit ? '0.00' : null,
+    ...paymentScheduleParams(paymentSchedule.cuotas),
+    CODIGODETRACCION: detraction?.code ?? null,
+    PORCENTAJEDETRACCION: detraction ? money(detraction.percent) : null,
+    TOTALDETRACCION: detraction ? money(totalDetraction) : null,
+    BANCONACION: detraction ? BANCO_NACION_DETRACCION : null,
     fechaVencimiento: dueDate
   });
 }
@@ -133,7 +151,7 @@ function toUspDetalleFeParams(
     CANTIDAD: quantity(item.cantidad),
     CODIGOPRODUCTO: item.codigoProducto,
     CODIGORAZONEXONERACION: tax.reasonCode,
-    DESCRIPCION: item.descripcion,
+    DESCRIPCION: invoiceItemDescription(item.descripcion, input.numeroRegistro),
     IMPORTEDESCUENTO: '0.00',
     importeTotalSinImpuesto: money(base),
     importeUnitarioConImpuesto: money(total / item.cantidad),
@@ -145,7 +163,8 @@ function toUspDetalleFeParams(
     ImporteIGV: money(igv),
     ImporteISC: '0.00',
     importeCargo: '0.00',
-    codigoProductoSUNAT: '-',
+    // Accepted FF01 invoices leave this optional catalog code empty.
+    codigoProductoSUNAT: null,
     montoBaseIgv: money(base),
     tasaIGV: money(tax.igvRate * 100),
     importeTotalImpuestos: money(igv),
@@ -184,6 +203,7 @@ function normalizeUnit(value: string) {
 }
 
 function detractionSettings(value: string) {
+  if (value === '000') return null;
   if (value === '025') return { code: '025', percent: 10 };
 
   return { code: '037', percent: 12 };
@@ -194,23 +214,32 @@ function taxSettings(value: string) {
     case 'GRATUITA':
       return { reasonCode: '21', unitPriceCode: '02', igvRate: 0 };
     case 'EXONERADA':
-      return { reasonCode: '20', unitPriceCode: '02', igvRate: 0 };
+      return { reasonCode: '20', unitPriceCode: '01', igvRate: 0 };
     case 'INAFECTA':
-      return { reasonCode: '30', unitPriceCode: '02', igvRate: 0 };
+      return { reasonCode: '30', unitPriceCode: '01', igvRate: 0 };
     case 'GRAVADA':
     default:
       return { reasonCode: '10', unitPriceCode: '01', igvRate: 0.18 };
   }
 }
 
-function emptyToNull(value: string | null | undefined) {
+function emptyToDash(value: string | null | undefined) {
   const trimmed = value?.trim() ?? '';
-  return trimmed ? trimmed : null;
+  return trimmed ? trimmed : '-';
 }
 
-function dueDateFromPayment(fechaEmision: string, formaPago: string) {
-  const match = /(\d+)/.exec(formaPago);
-  const days = match ? Number(match[1]) : 0;
+export function effectiveDueDate(input: Pick<FcFacturaPreviewInput, 'fechaEmision' | 'fechaVencimiento' | 'diasPago'> & Pick<Partial<FcFacturaPreviewInput>, 'cuotas'>) {
+  return invoicePaymentSchedule(input, { total: 0 }).dueDate;
+}
+
+export function invoiceItemDescription(description: string, numeroRegistro?: string | null) {
+  const base = description.trim();
+  const registrationNumber = numeroRegistro?.trim();
+
+  return registrationNumber ? `${base}  NR ${registrationNumber}` : base;
+}
+
+function dueDateFromPayment(fechaEmision: string, days: number) {
   const date = new Date(`${fechaEmision}T00:00:00-05:00`);
   date.setDate(date.getDate() + days);
 
@@ -219,6 +248,52 @@ function dueDateFromPayment(fechaEmision: string, formaPago: string) {
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0')
   ].join('-');
+}
+
+function invoicePaymentSchedule(
+  input: Pick<FcFacturaPreviewInput, 'fechaEmision' | 'fechaVencimiento' | 'diasPago' | 'cuotas'>,
+  totals: Pick<Totals, 'total'>
+) {
+  const cuotas = input.cuotas ?? [];
+  const normalizedCuotas = cuotas
+    .filter((cuota) => cuota.fecha.trim() && cuota.monto > 0)
+    .slice(0, 12)
+    .map((cuota) => ({
+      fecha: cuota.fecha.trim(),
+      monto: roundMoney(cuota.monto)
+    }));
+  const isCredit = normalizedCuotas.length > 0 || input.diasPago > 0;
+  const dueDate = normalizedCuotas.length > 0
+    ? normalizedCuotas.reduce((latest, cuota) => cuota.fecha > latest ? cuota.fecha : latest, normalizedCuotas[0]!.fecha)
+    : input.fechaVencimiento?.trim() || dueDateFromPayment(input.fechaEmision, input.diasPago);
+
+  return {
+    isCredit,
+    dueDate,
+    cuotas: normalizedCuotas.length > 0
+      ? normalizedCuotas
+      : isCredit
+        ? [{ fecha: dueDate, monto: roundMoney(totals.total) }]
+        : []
+  };
+}
+
+function paymentScheduleParams(cuotas: Array<{ fecha: string; monto: number }>) {
+  const values: Record<string, string | null> = {};
+  for (let index = 1; index <= 12; index += 1) {
+    const cuota = cuotas[index - 1];
+    values[`montoPagoCuota${index}`] = cuota ? money(cuota.monto) : null;
+    values[`fechaPagoCuota${index}`] = cuota?.fecha ?? null;
+  }
+  return values;
+}
+
+function requiredExchangeRate(input: FcFacturaPreviewInput) {
+  if (!input.tipoCambio || input.tipoCambio <= 0) {
+    throw new Error(`No hay tipo de cambio de venta para ${input.fechaEmision}`);
+  }
+
+  return input.tipoCambio;
 }
 
 function currentTime() {
@@ -231,9 +306,88 @@ function currentTime() {
   });
 }
 
-function moneyLegend(total: number, moneda: 'PEN' | 'USD') {
-  const label = moneda === 'PEN' ? 'SOLES' : 'DOLARES';
-  return `${money(total)} ${label}`;
+export function invoiceAmountInWords(total: number, moneda: 'PEN' | 'USD') {
+  const rounded = roundMoney(total);
+  let integerPart = Math.floor(rounded);
+  let cents = Math.round((rounded - integerPart) * 100);
+  if (cents === 100) {
+    integerPart += 1;
+    cents = 0;
+  }
+
+  const currency = moneda === 'PEN' ? 'SOLES' : 'DOLARES AMERICANOS';
+  return `${numberToSpanishWords(integerPart)} CON ${String(cents).padStart(2, '0')}/100 ${currency}`;
+}
+
+function numberToSpanishWords(value: number): string {
+  if (value === 0) return 'CERO';
+  if (value < 0) return `MENOS ${numberToSpanishWords(Math.abs(value))}`;
+
+  const millions = Math.floor(value / 1_000_000);
+  const thousands = Math.floor((value % 1_000_000) / 1000);
+  const rest = value % 1000;
+  const parts: string[] = [];
+
+  if (millions > 0) {
+    parts.push(millions === 1 ? 'UN MILLON' : `${apocopateUno(numberBelowThousandToWords(millions))} MILLONES`);
+  }
+
+  if (thousands > 0) {
+    parts.push(thousands === 1 ? 'MIL' : `${apocopateUno(numberBelowThousandToWords(thousands))} MIL`);
+  }
+
+  if (rest > 0) {
+    parts.push(numberBelowThousandToWords(rest));
+  }
+
+  return parts.join(' ');
+}
+
+function numberBelowThousandToWords(value: number): string {
+  const units = [
+    '',
+    'UNO',
+    'DOS',
+    'TRES',
+    'CUATRO',
+    'CINCO',
+    'SEIS',
+    'SIETE',
+    'OCHO',
+    'NUEVE',
+    'DIEZ',
+    'ONCE',
+    'DOCE',
+    'TRECE',
+    'CATORCE',
+    'QUINCE',
+    'DIECISEIS',
+    'DIECISIETE',
+    'DIECIOCHO',
+    'DIECINUEVE'
+  ];
+  const tens = ['', '', 'VEINTE', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+  const hundreds = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+
+  if (value < 20) return units[value]!;
+  if (value < 30) return value === 20 ? 'VEINTE' : `VEINTI${units[value - 20]!.toLowerCase()}`.toUpperCase();
+  if (value < 100) {
+    const ten = Math.floor(value / 10);
+    const unit = value % 10;
+    return unit === 0 ? tens[ten]! : `${tens[ten]} Y ${units[unit]}`;
+  }
+  if (value === 100) return 'CIEN';
+
+  const hundred = Math.floor(value / 100);
+  const rest = value % 100;
+  return rest === 0 ? hundreds[hundred]! : `${hundreds[hundred]} ${numberBelowThousandToWords(rest)}`;
+}
+
+function apocopateUno(value: string) {
+  return value
+    .replace(/VEINTIUNO$/u, 'VEINTIUN')
+    .replace(/ Y UNO$/u, ' Y UN')
+    .replace(/UNO$/u, 'UN');
 }
 
 const headerParamNames = [

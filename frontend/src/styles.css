@@ -739,6 +739,11 @@ th {
   width: 100%;
 }
 
+.declare-button-blocked {
+  background: #dbe4ef;
+  color: #475569;
+}
+
 .secondary-button {
   background: #e9eef5;
   color: #0f172a;
@@ -807,8 +812,38 @@ th {
 .payment-controls {
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr);
-  max-width: 176px;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(190px, 1.3fr);
+  max-width: 492px;
+  width: 100%;
+}
+
+.flexo-payment-field {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.flexo-payment-field .payment-controls {
+  max-width: 492px;
+}
+
+.flexo-due-field {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.flexo-account-field {
+  grid-column: 3;
+  grid-row: 3;
+}
+
+.flexo-currency-field {
+  grid-column: 2;
+  grid-row: 4;
+}
+
+.flexo-oc-field {
+  grid-column: 3;
+  grid-row: 4;
 }
 
 .invoice-exclusion-options {
@@ -847,9 +882,27 @@ th {
   grid-column: 1 / -1;
 }
 
+.flexo-observations-row {
+  align-items: stretch;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  max-width: 1060px;
+}
+
 .invoice-observations-field textarea {
-  min-height: 54px;
+  min-height: 40px;
   max-width: 100%;
+  resize: vertical;
+}
+
+.flexo-guides-button {
+  min-height: 40px;
+  width: 100%;
+}
+
+.flexo-review-heading {
+  margin: 0 0 8px;
 }
 
 .invoice-control-sm {
@@ -1278,6 +1331,113 @@ button:disabled {
   width: 150px;
 }
 
+.gre-guide-report-table th:nth-child(1),
+.gre-guide-report-table td:nth-child(1) {
+  width: 185px;
+}
+
+.gre-guide-report-table th:nth-child(2),
+.gre-guide-report-table td:nth-child(2) {
+  overflow-wrap: anywhere;
+  width: 260px;
+}
+
+.gre-guide-report-table th:nth-child(3),
+.gre-guide-report-table td:nth-child(3),
+.gre-guide-report-table th:nth-child(4),
+.gre-guide-report-table td:nth-child(4) {
+  width: 120px;
+}
+
+.gre-guide-report-table th:nth-child(5),
+.gre-guide-report-table td:nth-child(5) {
+  width: 70px;
+}
+
+.gre-guide-report-table th:nth-child(6),
+.gre-guide-report-table td:nth-child(6) {
+  overflow-wrap: anywhere;
+  width: 480px;
+}
+
+.gre-guide-report-table th:nth-child(7),
+.gre-guide-report-table td:nth-child(7) {
+  width: 90px;
+}
+
+.gre-guide-report-table th:nth-child(8),
+.gre-guide-report-table td:nth-child(8) {
+  width: 150px;
+}
+
+.stacked-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.25;
+}
+
+.stacked-cell span {
+  color: #475569;
+  font-size: 0.92rem;
+}
+
+.invoice-exclusion-options .invoice-option-disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.invoice-exclusion-options .invoice-option-disabled span {
+  cursor: help;
+}
+
+.factura-list-table {
+  min-width: 1460px;
+}
+
+.factura-list-table th:nth-child(1),
+.factura-list-table td:nth-child(1) {
+  width: 170px;
+}
+
+.factura-list-table th:nth-child(2),
+.factura-list-table td:nth-child(2) {
+  width: 170px;
+}
+
+.factura-list-table th:nth-child(3),
+.factura-list-table td:nth-child(3) {
+  width: 160px;
+}
+
+.factura-list-table th:nth-child(4),
+.factura-list-table td:nth-child(4),
+.factura-list-table th:nth-child(5),
+.factura-list-table td:nth-child(5) {
+  width: 130px;
+}
+
+.factura-list-table th:nth-child(6),
+.factura-list-table td:nth-child(6) {
+  width: 70px;
+}
+
+.factura-list-table th:nth-child(7),
+.factura-list-table td:nth-child(7) {
+  width: 100px;
+}
+
+.factura-list-table th:nth-child(8),
+.factura-list-table td:nth-child(8) {
+  overflow-wrap: anywhere;
+  width: 300px;
+}
+
+.factura-list-table th:nth-child(9),
+.factura-list-table td:nth-child(9) {
+  width: 90px;
+}
+
 .pagination-bar {
   align-items: center;
   display: flex;
@@ -1300,6 +1460,7 @@ button:disabled {
   min-width: 100px;
   padding: 6px 12px;
   text-align: center;
+  white-space: nowrap;
 }
 
 .status-generated {
@@ -1320,6 +1481,11 @@ button:disabled {
 .status-accepted {
   background: #dcfce7;
   color: #166534;
+}
+
+.status-cancelled {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .status-rejected {
@@ -1844,6 +2010,21 @@ button:disabled {
   gap: 10px;
   grid-template-columns: 1fr 1fr;
   margin-top: 22px;
+}
+
+.flexo-guides-modal {
+  max-width: 980px;
+  width: min(980px, calc(100vw - 32px));
+}
+
+.flexo-guides-modal .modal-titlebar {
+  margin-bottom: 12px;
+  padding-right: 28px;
+}
+
+.flexo-guides-modal-table {
+  max-height: min(520px, calc(100vh - 260px));
+  overflow: auto;
 }
 
 .invoice-confirm-modal {
@@ -3032,6 +3213,143 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   padding: 14px 20px;
 }
 
+.flexo-report-table {
+  table-layout: fixed;
+  min-width: 1120px;
+  width: 100%;
+}
+
+.flexo-report-table th,
+.flexo-report-table td {
+  line-height: 1.35;
+  max-width: 0;
+  overflow: hidden;
+  padding: 10px 12px;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.flexo-report-table td:nth-child(3),
+.flexo-report-table .report-message-cell {
+  white-space: normal;
+}
+
+.flexo-report-table .report-message-cell {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.flexo-status-actions {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flexo-status-actions .accept-sunat-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  width: auto;
+}
+
+.flexo-gre-report-table th:nth-child(1),
+.flexo-gre-report-table td:nth-child(1) {
+  width: 10%;
+}
+
+.flexo-invoice-report-table th:nth-child(1),
+.flexo-invoice-report-table td:nth-child(1) {
+  width: 10%;
+}
+
+.flexo-gre-report-table th:nth-child(2),
+.flexo-gre-report-table td:nth-child(2) {
+  width: 8%;
+}
+
+.flexo-invoice-report-table th:nth-child(2),
+.flexo-invoice-report-table td:nth-child(2) {
+  width: 8%;
+}
+
+.flexo-gre-report-table th:nth-child(3),
+.flexo-gre-report-table td:nth-child(3) {
+  width: 29%;
+}
+
+.flexo-invoice-report-table th:nth-child(3),
+.flexo-invoice-report-table td:nth-child(3) {
+  width: 27%;
+}
+
+.flexo-gre-report-table th:nth-child(4),
+.flexo-gre-report-table td:nth-child(4) {
+  width: 9%;
+}
+
+.flexo-invoice-report-table th:nth-child(4),
+.flexo-invoice-report-table td:nth-child(4) {
+  width: 9%;
+}
+
+.flexo-gre-report-table th:nth-child(5),
+.flexo-gre-report-table td:nth-child(5) {
+  width: 38%;
+}
+
+.flexo-invoice-report-table th:nth-child(6),
+.flexo-invoice-report-table td:nth-child(6) {
+  width: 32%;
+}
+
+.flexo-gre-report-table th:nth-child(6),
+.flexo-gre-report-table td:nth-child(6) {
+  text-align: center;
+  width: 6%;
+}
+
+.flexo-invoice-report-table th:nth-child(7),
+.flexo-invoice-report-table td:nth-child(7) {
+  text-align: center;
+  width: 6%;
+}
+
+.flexo-invoice-report-table th:nth-child(5),
+.flexo-invoice-report-table td:nth-child(5) {
+  width: 8%;
+}
+
+.report-action-cell {
+  max-width: none;
+  overflow: visible;
+}
+
+.icon-action-button {
+  align-items: center;
+  background: #eef5ff;
+  border: 1px solid #bfd6ff;
+  border-radius: 6px;
+  color: #1d4ed8;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+}
+
+.icon-action-button:disabled {
+  background: #f1f5f9;
+  border-color: #dbe3ed;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.icon-action-button:not(:disabled):hover {
+  background: #dbeafe;
+}
+
 @media (max-width: 1180px) {
   .form-grid,
   .driver-row,
@@ -3141,4 +3459,5 @@ button:disabled { cursor: not-allowed; opacity: .55; }
     height: 94vh;
     width: 100%;
   }
+
 }

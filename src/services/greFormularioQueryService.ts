@@ -96,6 +96,7 @@ export type GuideStatus = 'GENERADO' | 'ENVIADO' | 'EN_PROCESO' | 'ACEPTADA' | '
 export type GuideStatusResult = {
   operationId: string;
   serieNumeroGuia: string | null;
+  cliente: string | null;
   estado: GuideStatus;
   estadoOperacion: string | null;
   estadoEnvio: string | null;
@@ -200,6 +201,7 @@ export type ManualDriverInput = {
 type OperationRow = {
   operationId: string;
   serieNumeroGuia: string | null;
+  razonSocialDestinatario: string | null;
   estadoOperacion: string | null;
   estadoEnvio: string | null;
   mensajeEnvio: string | null;
@@ -943,6 +945,7 @@ export class GreFormularioQueryService {
         SELECT TOP (100)
           CONVERT(varchar(36), o.idOperacion) AS operationId,
           e.serieNumeroGuia,
+          o.razonSocialDestinatario,
           o.estado AS estadoOperacion,
           e.estado AS estadoEnvio,
           e.mensaje AS mensajeEnvio,
@@ -963,6 +966,7 @@ export class GreFormularioQueryService {
         GROUP BY
           o.idOperacion,
           e.serieNumeroGuia,
+          o.razonSocialDestinatario,
           o.estado,
           e.estado,
           e.mensaje,
@@ -990,6 +994,7 @@ export class GreFormularioQueryService {
         SELECT TOP (1)
           CONVERT(varchar(36), o.idOperacion) AS operationId,
           e.serieNumeroGuia,
+          o.razonSocialDestinatario,
           o.estado AS estadoOperacion,
           e.estado AS estadoEnvio,
           e.mensaje AS mensajeEnvio,
@@ -1011,6 +1016,7 @@ export class GreFormularioQueryService {
         GROUP BY
           o.idOperacion,
           e.serieNumeroGuia,
+          o.razonSocialDestinatario,
           o.estado,
           e.estado,
           e.mensaje,
@@ -1087,6 +1093,7 @@ export class GreFormularioQueryService {
         return {
           operationId: row.operationId,
           serieNumeroGuia: row.serieNumeroGuia,
+          cliente: row.razonSocialDestinatario?.trim() || null,
           estado: mapGuideStatusForReport(row, bizlinksStatus),
           estadoOperacion: row.estadoOperacion,
           estadoEnvio: row.estadoEnvio,

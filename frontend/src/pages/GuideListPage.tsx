@@ -47,7 +47,7 @@ export function GuideListPage() {
     const normalized = query.trim().toLowerCase();
 
     return facturas.filter((factura) => {
-      const displayStatus = facturaStatus(factura);
+      const displayStatus = facturaSunatStatus(factura);
       const matchesStatus = status === 'Todos' || displayStatus === status;
       const matchesQuery = !normalized || [
         factura.serieNumeroFactura,
@@ -194,11 +194,25 @@ export function GuideListPage() {
     return 'Pendiente';
   }
 
-  function facturaStatus(factura: FcFacturaStatusResult): GuideStatus {
+  function facturaBizlinksStatus(factura: FcFacturaStatusResult): GuideStatus {
+    if (factura.estadoOperacion === 'ANULADA') return 'Anulado';
     if (factura.estadoBizlinks === 'E' || factura.estadoOperacion === 'RECHAZADA') return 'Rechazado';
     if (factura.estadoOperacion === 'ERROR') return 'Error';
     if (factura.estadoBizlinks === 'A' || factura.estadoBizlinks === 'L' || factura.estadoOperacion === 'ACEPTADA') return 'Aceptado';
     if (factura.estadoEnvio === 'ACTIVADO' || factura.estadoOperacion === 'ACTIVADO') return 'En proceso';
+
+    return 'Pendiente';
+  }
+
+  function facturaSunatStatus(factura: FcFacturaStatusResult): GuideStatus {
+    const estadoProceso = factura.estadoProceso ?? '';
+    const mensaje = factura.mensaje ?? '';
+
+    if (factura.estadoOperacion === 'ANULADA') return 'Anulado';
+    if (factura.estadoOperacion === 'ACEPTADA' || estadoProceso.includes('AC_03') || /"codigo"\s*:\s*"0"/i.test(mensaje)) return 'Aceptado';
+    if (factura.estadoOperacion === 'ERROR') return 'Error';
+    if (/rechazad/i.test(mensaje) || /RECH|RJ|ERROR/i.test(estadoProceso)) return 'Rechazado';
+    if (factura.estadoBizlinks === 'A' || factura.estadoBizlinks === 'L' || factura.estadoEnvio === 'ACTIVADO' || factura.estadoOperacion === 'ACTIVADO') return 'En proceso';
 
     return 'Pendiente';
   }
@@ -240,6 +254,7 @@ export function GuideListPage() {
             <option>Pendiente</option>
             <option>En proceso</option>
             <option>Aceptado</option>
+            <option>Anulado</option>
             <option>Rechazado</option>
             <option>Error</option>
           </select>
@@ -260,11 +275,11 @@ export function GuideListPage() {
       {message && <div className="inline-message list-message">{message}</div>}
       <div className="list-table-wrap">
         {documentType === 'guias' ? (
-          <table className="guide-list-table">
+          <table className="guide-list-table gre-guide-report-table">
             <thead>
               <tr>
-                <th>Serie</th>
-                <th>Fecha</th>
+                <th>Serie / Fecha</th>
+                <th>Cliente</th>
                 <th>Bizlinks</th>
                 <th>SUNAT</th>
                 <th>Items</th>
@@ -275,16 +290,21 @@ export function GuideListPage() {
             </thead>
             <tbody>
               {visibleGuides.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="empty-row">
-                    Sin guias para mostrar.
+                  <tr>
+                    <td colSpan={8} className="empty-row">
+                      Sin guias para mostrar.
                   </td>
                 </tr>
               ) : (
                 visibleGuides.map((guide) => (
                   <tr key={guide.operationId} className={guide.workOrdersReleased ? 'guide-row-released' : undefined}>
-                    <td>{formatSerie(guide.serieNumeroGuia)}</td>
-                    <td>{formatDate(guide.creadoEn)}</td>
+                    <td>
+                      <div className="stacked-cell">
+                        <strong>{formatSerie(guide.serieNumeroGuia)}</strong>
+                        <span>{formatDate(guide.creadoEn)}</span>
+                      </div>
+                    </td>
+                    <td>{guide.cliente || '-'}</td>
                     <td>
                       <StatusBadge status={bizlinksStatus(guide)} />
                     </td>
@@ -352,7 +372,7 @@ export function GuideListPage() {
             </tbody>
           </table>
         ) : (
-          <table className="guide-list-table">
+          <table className="guide-list-table factura-list-table">
             <thead>
               <tr>
                 <th>Serie</th>
@@ -379,10 +399,10 @@ export function GuideListPage() {
                   <td>{formatDate(factura.creadoEn)}</td>
                   <td>{factura.numeroDocumentoCliente} - {factura.cliente}</td>
                   <td>
-                    <StatusBadge status={facturaStatus(factura)} />
+                    <StatusBadge status={facturaBizlinksStatus(factura)} />
                   </td>
                   <td>
-                    <StatusBadge status={facturaStatus(factura)} />
+                    <StatusBadge status={facturaSunatStatus(factura)} />
                   </td>
                   <td>{factura.items}</td>
                   <td>{factura.total.toFixed(2)}</td>

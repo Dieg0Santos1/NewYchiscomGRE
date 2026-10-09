@@ -10,6 +10,7 @@ import { frontendAssets } from './middleware/frontendAssets.js';
 import { fcFacturaRoutes } from './routes/fcFacturaRoutes.js';
 import { fcLegacyWorkflowRoutes } from './routes/fcLegacyWorkflowRoutes.js';
 import type { FcLegacyWorkflowRouteService } from './routes/fcLegacyWorkflowRoutes.js';
+import { flexoCreditNoteRoutes } from './routes/flexoCreditNoteRoutes.js';
 import { flexoFacturaRoutes } from './routes/flexoFacturaRoutes.js';
 import { flexoRoutes } from './routes/flexoRoutes.js';
 import { greFormularioRoutes } from './routes/greFormularioRoutes.js';
@@ -21,6 +22,7 @@ import { authRoutes } from './routes/authRoutes.js';
 import { adminAccessRoutes } from './routes/adminAccessRoutes.js';
 import { sanitizeValue } from './utils/sanitize.js';
 import type { FcFacturaService } from './services/fcFacturaService.js';
+import type { FlexoCreditNoteService } from './services/flexoCreditNoteService.js';
 import type { FlexoService } from './services/flexoService.js';
 import type { FlexoFacturaService } from './services/flexoFacturaService.js';
 import type { GreFormularioDeclararTestService } from './services/greFormularioDeclararTestService.js';
@@ -37,6 +39,7 @@ export function createApp(options?: {
   existingGreClient?: ExistingGreClient;
   fcFacturaService?: FcFacturaService;
   fcLegacyWorkflowService?: FcLegacyWorkflowRouteService;
+  flexoCreditNoteService?: FlexoCreditNoteService;
   flexoService?: FlexoService;
   flexoFacturaService?: FlexoFacturaService;
   greFormularioDeclararTestService?: GreFormularioDeclararTestService;
@@ -90,6 +93,7 @@ export function createApp(options?: {
   app.use(fcFacturaRoutes(config, options?.fcFacturaService));
   app.use(fcLegacyWorkflowRoutes(config, options?.fcLegacyWorkflowService));
   app.use(flexoFacturaRoutes(config, options?.flexoFacturaService));
+  app.use(flexoCreditNoteRoutes(config, options?.flexoCreditNoteService));
   app.use(reportesEspecialesRoutes(config, options?.reportesEspecialesService));
   if (config.serveFrontend) {
     app.use(frontendAssets(config));

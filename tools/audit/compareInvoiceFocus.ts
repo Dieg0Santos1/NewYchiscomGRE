@@ -43,6 +43,7 @@ const detailColumns = [
   'CANTIDAD',
   'unidadMedida',
   'CODIGOPRODUCTO',
+  'codigoProductoSUNAT',
   'descripcion',
   'CODIGORAZONEXONERACION',
   'importeUnitarioSinImpuesto',
@@ -97,7 +98,7 @@ async function selectRows(
   facturas.forEach((factura, index) => request.input(`factura${index}`, sql.VarChar(13), factura));
 
   const result = await request.query(`
-    SELECT ${['SERIENUMERO', ...existing.filter((column) => column !== 'SERIENUMERO')]
+    SELECT ${['SERIENUMERO', ...existing.filter((column) => column.toLowerCase() !== 'serienumero')]
       .map((column) => `[${column}]`)
       .join(', ')}
     FROM dbo.${tableName}
@@ -121,7 +122,9 @@ async function selectResponse(pool: sql.ConnectionPool, facturas: string[]) {
       process_state,
       bl_mensajeSunat,
       bl_mensaje,
-      bl_url_pdf
+      bl_url_pdf,
+      bl_url_cdr,
+      bl_Ticket
     FROM dbo.SPE_EINVOICE_RESPONSE
     WHERE SERIENUMERO IN (${facturas.map((_, index) => `@factura${index}`).join(', ')})
       AND TIPODOCUMENTO = '01'
@@ -141,8 +144,10 @@ async function existingColumns(pool: sql.ConnectionPool, tableName: string, colu
       AND TABLE_NAME = @tableName;
   `);
 
-  const existing = new Set(result.recordset.map((row) => row.COLUMN_NAME));
-  return columns.filter((column) => existing.has(column));
+  const existing = new Map(result.recordset.map((row) => [row.COLUMN_NAME.toLowerCase(), row.COLUMN_NAME]));
+  return columns
+    .map((column) => existing.get(column.toLowerCase()))
+    .filter((column): column is string => Boolean(column));
 }
 
 main().catch((error) => {

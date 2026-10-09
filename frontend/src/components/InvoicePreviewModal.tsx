@@ -21,6 +21,16 @@ type PreviewInvoiceResponse = {
     severity: 'ok' | 'warning' | 'error';
     message: string;
   }>;
+  financial?: {
+    moneda: 'PEN' | 'USD';
+    tipoCambio: number;
+    diasPago: number;
+    fechaVencimiento: string;
+    totalEquivalentePen: number;
+    detraccionMonedaDocumento: number;
+    detraccionPen: number;
+    netoPendiente: number;
+  };
 };
 
 type InvoicePreviewModalProps = {
@@ -65,7 +75,7 @@ export function InvoicePreviewModal({ preview, items, tipoExclusionProducto, hid
             </div>
             <div>
               <span>Total</span>
-              <strong>{preview.totals.total.toFixed(2)}</strong>
+              <strong>{preview.financial?.moneda ?? 'PEN'} {preview.totals.total.toFixed(2)}</strong>
             </div>
           </div>
 
@@ -82,8 +92,32 @@ export function InvoicePreviewModal({ preview, items, tipoExclusionProducto, hid
               </div>
               <div>
                 <dt>Total</dt>
-                <dd>{preview.totals.total.toFixed(2)}</dd>
+                <dd>{preview.financial?.moneda ?? 'PEN'} {preview.totals.total.toFixed(2)}</dd>
               </div>
+              {preview.financial?.moneda === 'USD' && (
+                <div>
+                  <dt>Tipo de cambio</dt>
+                  <dd>{preview.financial.tipoCambio.toFixed(3)}</dd>
+                </div>
+              )}
+              {(preview.financial?.detraccionPen ?? 0) > 0 && (
+                <div>
+                  <dt>Detraccion</dt>
+                  <dd>S/ {preview.financial?.detraccionPen.toFixed(2)}</dd>
+                </div>
+              )}
+              {(preview.financial?.diasPago ?? 0) > 0 && (
+                <>
+                  <div>
+                    <dt>Vencimiento</dt>
+                    <dd>{preview.financial?.fechaVencimiento}</dd>
+                  </div>
+                  <div>
+                    <dt>Cuota neta</dt>
+                    <dd>{preview.financial?.moneda} {preview.financial?.netoPendiente.toFixed(2)}</dd>
+                  </div>
+                </>
+              )}
               <div>
                 <dt>Estado</dt>
                 <dd>{hasWarnings ? 'Revisar datos' : 'Lista para declarar'}</dd>
@@ -96,7 +130,14 @@ export function InvoicePreviewModal({ preview, items, tipoExclusionProducto, hid
               <h3>Validaciones</h3>
               <div className="invoice-preview-validations">
                 {visibleValidations.map((item) => (
-                  <div key={item.code} className={item.severity === 'ok' ? 'invoice-validation-ok' : 'invoice-validation-warning'}>
+                  <div
+                    key={item.code}
+                    className={item.severity === 'ok'
+                      ? 'invoice-validation-ok'
+                      : item.severity === 'error'
+                        ? 'invoice-validation-error'
+                        : 'invoice-validation-warning'}
+                  >
                     {item.severity === 'ok' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
                     <span>{item.message}</span>
                   </div>

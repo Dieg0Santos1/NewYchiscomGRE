@@ -137,7 +137,14 @@ export function fcFacturaRoutes(
         return;
       }
 
-      const preview = await service.preview(parsed.data);
+      let preview: Awaited<ReturnType<FcFacturaService['preview']>>;
+      try {
+        preview = await service.preview(parsed.data);
+      } catch (error) {
+        const friendly = toFcFacturaErrorResponse(error);
+        res.status(friendly.status).json(friendly.body);
+        return;
+      }
 
       res.status(200).json({
         ok: true,
@@ -224,6 +231,18 @@ function toFcFacturaErrorResponse(error: unknown) {
   const number = Number(record.number ?? record.code ?? 0);
   const message = rawMessage.replace(/\s+/g, ' ').trim();
 
+  if (/No existe tipo de cambio de venta/i.test(message)) {
+    return {
+      status: 422,
+      body: {
+        ok: false,
+        error: 'FC_FACTURA_TIPO_CAMBIO_NO_DISPONIBLE',
+        message,
+        detail: 'La vista previa no realizo ninguna escritura.'
+      }
+    };
+  }
+
   if (number === 8152 || /String or binary data would be truncated/i.test(message)) {
     return {
       status: 422,
@@ -267,6 +286,18 @@ function toFcFacturaErrorResponse(error: unknown) {
         ok: false,
         error: 'FC_FACTURA_BLOQUEO_SQL',
         message: 'Otro proceso esta usando el correlativo o una de las GRE seleccionadas. Espere unos segundos, actualice la pantalla y vuelva a intentar.',
+        detail: safeDetail(message)
+      }
+    };
+  }
+
+  if (/Timeout|Request failed to complete|ETIMEOUT/i.test(message)) {
+    return {
+      status: 504,
+      body: {
+        ok: false,
+        error: 'FC_FACTURA_TIMEOUT_SQL',
+        message: 'La declaracion excedio el tiempo de espera. Revise el estado de esta factura en Reportes antes de reintentar; el detalle indica en que paso fallo.',
         detail: safeDetail(message)
       }
     };

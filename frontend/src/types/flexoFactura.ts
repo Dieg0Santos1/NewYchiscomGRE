@@ -28,6 +28,7 @@ export type FlexoFacturaItem = {
   descripcion: string;
   cantidad: number;
   unidadMedida: string;
+  moneda?: 'PEN' | 'USD';
   precioUnitario: number;
   afectoIgv: boolean;
 };
@@ -52,7 +53,13 @@ export type FlexoFacturaPreviewInput = {
   serie: 'FF03';
   numero: string;
   fechaEmision: string;
-  moneda: 'PEN';
+  fechaVencimiento?: string;
+  moneda: 'PEN' | 'USD';
+  diasPago: number;
+  cuotas: Array<{
+    fecha: string;
+    monto: number;
+  }>;
   formaPago: string;
   cuenta: string;
   detraccion: FlexoFacturaDetraccion;
@@ -70,8 +77,8 @@ export type FlexoFacturaPreviewInput = {
 
 export type FlexoFacturaPreviewResponse = {
   ok: boolean;
-  writesDatabase: false;
-  productionEnabled: false;
+  writesDatabase: boolean;
+  productionEnabled: boolean;
   serieNumeroFactura: string;
   totals: {
     gravada: number;
@@ -87,11 +94,21 @@ export type FlexoFacturaPreviewResponse = {
   procedurePlan: unknown;
 };
 
+export type FlexoFacturaDeclareResponse = {
+  ok: boolean;
+  operationId: string;
+  serieNumeroFactura: string;
+  insertedHeader: boolean;
+  insertedItems: number;
+  activated: boolean;
+  status: unknown;
+};
+
 export type FlexoFacturaNextSerie = {
   ok: boolean;
   serie: 'FF03';
   numero: string;
   serieNumeroFactura: string;
   reserved: false;
-  source: 'BIZLINKS_SPE_EINVOICEHEADER';
+  source: 'AAA_TIPODOCUMENTO' | 'BIZLINKS_SPE_EINVOICEHEADER';
 };

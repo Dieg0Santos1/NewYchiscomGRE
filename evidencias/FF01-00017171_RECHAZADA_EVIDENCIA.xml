@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<evidenciaTecnica xmlns="urn:ychiformas:evidencia:factura-rechazada:1">
+  <advertencia>
+    Este archivo no es un CPE, UBL, CDR ni representacion impresa oficial.
+    Bizlinks rechazo el registro antes de generar esos archivos.
+  </advertencia>
+  <documento>
+    <tipoDocumento>01</tipoDocumento>
+    <serieNumero>FF01-00017171</serieNumero>
+    <fechaEmision>2026-09-16</fechaEmision>
+    <horaEmision>08:16:20</horaEmision>
+    <moneda>PEN</moneda>
+    <formaPago>Contado C/E</formaPago>
+    <cuentaContable>7022111</cuentaContable>
+    <guiaReferenciada>T001-00000093</guiaReferenciada>
+  </documento>
+  <emisor>
+    <tipoDocumento>6</tipoDocumento>
+    <numeroDocumento>20259402965</numeroDocumento>
+    <razonSocial>YCHIFORMAS S.A.</razonSocial>
+  </emisor>
+  <adquiriente>
+    <tipoDocumento>6</tipoDocumento>
+    <numeroDocumento>10406265574</numeroDocumento>
+    <razonSocial>ORLANDO BORITZ LLERENA DELGADO</razonSocial>
+  </adquiriente>
+  <totales>
+    <operacionGravada>0.50</operacionGravada>
+    <igv>0.09</igv>
+    <total>0.59</total>
+    <tipoOperacionRegistrado>1001</tipoOperacionRegistrado>
+    <codigoDetraccionRegistrado>037</codigoDetraccionRegistrado>
+    <porcentajeDetraccionRegistrado>12.00</porcentajeDetraccionRegistrado>
+    <totalDetraccionRegistrado>0.07</totalDetraccionRegistrado>
+  </totales>
+  <items>
+    <item numero="1">
+      <codigoProducto>881708</codigoProducto>
+      <descripcion>BOLETA DE VENTA, BOLETA DE VENTA 9 7/8 X 2 1/2 X 2, TIRA:1, RETIRA:0, PAPEL:Autocopiativo, SERIE:1, DEL:1, AL:5000</descripcion>
+      <cantidad>5.000</cantidad>
+      <unidadMedida>MIL</unidadMedida>
+      <valorUnitarioSinImpuesto>0.10000</valorUnitarioSinImpuesto>
+      <precioUnitarioConImpuesto>0.12</precioUnitarioConImpuesto>
+      <valorVenta>0.50</valorVenta>
+      <igv>0.09</igv>
+    </item>
+  </items>
+  <rechazo>
+    <origen>SPE_ERROR_LOG</origen>
+    <codigo>7122</codigo>
+    <fechaRegistro>2026-09-16T08:27:34.605-05:00</fechaRegistro>
+    <descripcion>Error en el campo auxiliar de 40 caracteres: no se ha especificado el codigo o el texto; deben especificarse ambos para ser validos.</descripcion>
+    <campoRelacionado>
+      <codigoAuxiliar40_1>9218</codigoAuxiliar40_1>
+      <textoAuxiliar40_1 estado="faltante" />
+    </campoRelacionado>
+  </rechazo>
+  <archivosBizlinks>
+    <respuestaRegistrada>false</respuestaRegistrada>
+    <sourceFileRegistrado>false</sourceFileRegistrado>
+    <jobDownloadRegistrado>false</jobDownloadRegistrado>
+    <pdfGenerado>false</pdfGenerado>
+    <xmlUblGenerado>false</xmlUblGenerado>
+    <cdrGenerado>false</cdrGenerado>
+  </archivosBizlinks>
+  <trazabilidadPortal>
+    <operationId>FBECB3A5-C391-48A2-B3E7-3246E8919FE0</operationId>
+    <creadoEnUtc>2026-09-16T13:27:33.668Z</creadoEnUtc>
+    <nota>El portal registro activacion local antes de que el proceso asincrono de Bizlinks marcara el rechazo.</nota>
+  </trazabilidadPortal>
+  <fuentesConsultadas>
+    <tabla>GRE_FORMULARIOS_TEST.dbo.FC_FACT_OPERACION</tabla>
+    <tabla>GRE_FORMULARIOS_TEST.dbo.FC_FACT_EVENTO</tabla>
+    <tabla>BIZLINKS_PROD21.dbo.SPE_EINVOICEHEADER</tabla>
+    <tabla>BIZLINKS_PROD21.dbo.SPE_EINVOICEDETAIL</tabla>
+    <tabla>BIZLINKS_PROD21.dbo.SPE_ERROR_LOG</tabla>
+    <tabla>BIZLINKS_PROD21.dbo.SPE_EINVOICE_RESPONSE</tabla>
+    <tabla>BIZLINKS_PROD21.dbo.SPE_JOB_DOWNLOAD</tabla>
+  </fuentesConsultadas>
+</evidenciaTecnica>

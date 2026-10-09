@@ -17,7 +17,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
   const routes = module === 'flexo'
     ? {
         ajustes: '/flexo/ajustes',
-        guias: '/flexo/ajustes',
+        guias: '/flexo/guias/nueva',
         facturas: '/flexo/facturas',
         reportes: '/flexo/reportes',
         especiales: '/reportes/especiales'
@@ -32,8 +32,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
     : {
         guias: '/guias/nueva',
         facturas: '/facturas',
-        reportes: '/guias/listado',
-        especiales: '/reportes/especiales'
+        reportes: '/guias/listado'
       };
 
   const switchModule = (nextModule: AuthModule) => {
@@ -84,13 +83,36 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
             </>
           )}
           {!isAdminRoute && module === 'flexo' && (
-            <a
-              className={isActive('/flexo/ajustes')}
-              href="#/flexo/ajustes"
-              onClick={() => onNavigate('/flexo/ajustes')}
-            >
-              Ajustes
-            </a>
+            <>
+              <a
+                className={isActive('/flexo/guias/nueva')}
+                href="#/flexo/guias/nueva"
+                onClick={() => onNavigate('/flexo/guias/nueva')}
+              >
+                GRE
+              </a>
+              <a
+                className={isActive('/flexo/facturas')}
+                href="#/flexo/facturas"
+                onClick={() => onNavigate('/flexo/facturas')}
+              >
+                Facturas
+              </a>
+              <a
+                className={isActive('/flexo/reportes')}
+                href="#/flexo/reportes"
+                onClick={() => onNavigate('/flexo/reportes')}
+              >
+                Reportes
+              </a>
+              <a
+                className={isActive('/flexo/ajustes')}
+                href="#/flexo/ajustes"
+                onClick={() => onNavigate('/flexo/ajustes')}
+              >
+                Ajustes
+              </a>
+            </>
           )}
           {!isAdminRoute && module !== 'flexo' && <a
               className={isActive(routes.guias)}
@@ -115,15 +137,6 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
           >
             Reportes
           </a>}
-          {!isAdminRoute && module === 'fc' && (
-            <a
-              className={isActive(routes.especiales)}
-              href={`#${routes.especiales}`}
-              onClick={() => onNavigate(routes.especiales)}
-            >
-              Especiales
-            </a>
-          )}
           <button type="button" className="logout-button" onClick={onLogout}>Salir</button>
         </nav>
       </header>

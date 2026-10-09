@@ -298,6 +298,94 @@ describe('fc-facturas routes', () => {
       });
   });
 
+  it('permite mas de una GRE en la vista previa FC', async () => {
+    const app = createApp({ config: testConfig, fcFacturaService });
+
+    await request(app)
+      .post('/api/fc-facturas/preview')
+      .send({
+        serie: 'FF01',
+        numero: '00000000',
+        fechaEmision: '2026-08-12',
+        moneda: 'PEN',
+        formaPago: 'Contado C/E',
+        diasPago: 0,
+        cuenta: '701',
+        tipoDetraccion: '000',
+        tipoExclusionProducto: 'GRAVADA',
+        cliente: {
+          tipoDocumento: '6',
+          numeroDocumento: '20111111111',
+          razonSocial: 'CLIENTE FACTURA S.A.C.'
+        },
+        guias: [
+          { serieNumeroGuia: 'T001-00000023' },
+          { serieNumeroGuia: 'T001-00000024' }
+        ],
+        items: [{
+          id: '1',
+          serieNumeroGuia: 'T001-00000023',
+          codigoProducto: 'PROD001',
+          descripcion: 'PRODUCTO FC',
+          unidadMedida: 'MIL',
+          cantidad: 1,
+          precioUnitario: 100
+        }, {
+          id: '2',
+          serieNumeroGuia: 'T001-00000024',
+          codigoProducto: 'PROD002',
+          descripcion: 'PRODUCTO FC 2',
+          unidadMedida: 'MIL',
+          cantidad: 1,
+          precioUnitario: 50
+        }]
+      })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.ok).toBe(true);
+        expect(fcFacturaService.preview).toHaveBeenCalled();
+      });
+  });
+
+  it('rechaza mas de cinco GRE por factura FC', async () => {
+    const app = createApp({ config: testConfig, fcFacturaService });
+
+    await request(app)
+      .post('/api/fc-facturas/preview')
+      .send({
+        serie: 'FF01',
+        numero: '00000000',
+        fechaEmision: '2026-08-12',
+        moneda: 'PEN',
+        formaPago: 'Contado C/E',
+        diasPago: 0,
+        cuenta: '701',
+        tipoDetraccion: '000',
+        tipoExclusionProducto: 'GRAVADA',
+        cliente: {
+          tipoDocumento: '6',
+          numeroDocumento: '20111111111',
+          razonSocial: 'CLIENTE FACTURA S.A.C.'
+        },
+        guias: [23, 24, 25, 26, 27, 28].map((number) => ({
+          serieNumeroGuia: `T001-${String(number).padStart(8, '0')}`
+        })),
+        items: [{
+          id: '1',
+          serieNumeroGuia: 'T001-00000023',
+          codigoProducto: 'PROD001',
+          descripcion: 'PRODUCTO FC',
+          unidadMedida: 'MIL',
+          cantidad: 1,
+          precioUnitario: 100
+        }]
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.error).toBe('VALIDATION_ERROR');
+      });
+  });
+
   it('requiere confirmacion explicita para declarar factura FC', async () => {
     const app = createApp({ config: testConfig, fcFacturaService });
 

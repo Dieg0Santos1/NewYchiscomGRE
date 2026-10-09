@@ -1,13 +1,17 @@
 import { apiGet, apiPatch, apiPost } from './ApiClient';
 import type {
   FlexoCliente,
+  FlexoCatalogsResponse,
   FlexoDestino,
   FlexoEmpaque,
   FlexoEmpaqueAdjustment,
+  FlexoGuideDeclareResponse,
+  FlexoGuidePrepareResponse,
   FlexoGuidePreviewInput,
   FlexoGuidePreviewResponse,
   FlexoGuideSerie,
   FlexoNextSerie,
+  FlexoReportsResponse,
   FlexoUpdateUnidadResponse
 } from '../types/flexo';
 
@@ -31,7 +35,24 @@ type EmpaqueAdjustmentsResponse = {
   empaques: FlexoEmpaqueAdjustment[];
 };
 
+type ManualSunatAcceptedResponse = {
+  ok: boolean;
+  operationId: string;
+  serieNumeroGuia: string;
+  reused: boolean;
+  updated: boolean;
+  message: string;
+};
+
 export const flexoService = {
+  listCatalogs() {
+    return apiGet<FlexoCatalogsResponse>('/api/flexo/catalogos');
+  },
+
+  listReports() {
+    return apiGet<FlexoReportsResponse>('/api/flexo/reportes');
+  },
+
   async searchClientes(query: string) {
     const response = await apiGet<ClientesResponse>(`/api/flexo/clientes/search?q=${encodeURIComponent(query)}`);
     return response.clientes;
@@ -59,6 +80,33 @@ export const flexoService = {
 
   previewGuia(payload: FlexoGuidePreviewInput) {
     return apiPost<FlexoGuidePreviewResponse>('/api/flexo/guias/preview', payload);
+  },
+
+  prepareGuia(payload: FlexoGuidePreviewInput) {
+    return apiPost<FlexoGuidePrepareResponse>('/api/flexo/guias/preparar', payload);
+  },
+
+  declareGuia(payload: FlexoGuidePreviewInput) {
+    return apiPost<FlexoGuideDeclareResponse>('/api/flexo/guias/declarar', payload);
+  },
+
+  guidePdfUrl(serieNumeroGuia: string) {
+    return `/api/flexo/guias/${encodeURIComponent(serieNumeroGuia)}/pdf`;
+  },
+
+  setManualSunatAcceptedMessage(serieNumeroGuia: string) {
+    return apiPost<ManualSunatAcceptedResponse>(
+      `/api/flexo/guias/${encodeURIComponent(serieNumeroGuia)}/manual-sunat-accepted`,
+      {},
+      {
+        'X-Confirm-Manual-Sunat': 'YES',
+        'X-User': 'frontend-flexo'
+      }
+    );
+  },
+
+  invoicePdfUrl(serieNumeroFactura: string) {
+    return `/api/flexo/facturas/${encodeURIComponent(serieNumeroFactura)}/pdf`;
   },
 
   async searchEmpaqueAdjustments(query: string) {

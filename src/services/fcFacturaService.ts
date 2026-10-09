@@ -1,7 +1,12 @@
 import type { AppConfig } from '../config/env.js';
 import { getGreDefaults } from '../config/greDefaults.js';
 import { createBizlinksPool, createGreFcPool, createYchiPool, sql } from '../integrations/bizlinksSql.js';
-import { toFcFacturaProcedurePlan } from '../mappers/fcFacturaProcedureMapper.js';
+import {
+  effectiveDueDate,
+  invoiceAmountInWords,
+  invoiceItemDescription,
+  toFcFacturaProcedurePlan
+} from '../mappers/fcFacturaProcedureMapper.js';
 import type { StoredProcedureParam } from '../mappers/speDespatchProcedureMapper.js';
 import {
   FC_FACTURA_SERIE,
@@ -10,12 +15,25 @@ import {
 } from '../schemas/fcFacturaSchema.js';
 import { getDownloadedPdf, type PdfDelivery } from './bizlinksPdfDownloadService.js';
 
+const FACTURA_DETAIL_DESCRIPTION_MAX_LENGTH = 1700;
+
 export type FcFacturaCliente = {
   id: string;
   tipoDocumento: string;
   numeroDocumento: string;
   razonSocial: string;
   fuente: 'GRE_FC' | 'BIZLINKS' | 'CLIENTE_YCHIDB3' | 'PROVEEDOR';
+  direccionFiscal?: FcFacturaDireccionFiscal | null;
+};
+
+export type FcFacturaDireccionFiscal = {
+  direccion: string;
+  ubigeo: string;
+  distrito: string;
+  provincia: string;
+  departamento: string;
+  pais: string;
+  fuente: 'AAA_ADQUIRIENTE' | 'FACTURA_ACEPTADA' | 'YCHIDB3';
 };
 
 export type FcFacturaVendedor = {
@@ -170,6 +188,7 @@ export interface FcFacturaService {
       total: number;
     };
     validations: FcFacturaValidation[];
+    financial: ReturnType<typeof calculateFinancialSummary>;
     payload: FcFacturaPreviewInput;
     procedurePlan: ReturnType<typeof toFcFacturaProcedurePlan>;
   }>;
@@ -185,17 +204,17 @@ export class DirectDbFcFacturaService implements FcFacturaService {
     const normalized = query.trim();
     const greFcPool = createGreFcPool(this.config);
     const bizlinksPool = createBizlinksPool(this.config);
-    const ychiPool = includeYchiRecipients ? createYchiPool(this.config) : null;
+    const ychiPool = createYchiPool(this.config);
 
     await greFcPool.connect();
     await bizlinksPool.connect();
-    if (ychiPool) await ychiPool.connect();
+    await ychiPool.connect();
 
     try {
       const results = [
         ...await searchClientesFromGreFc(greFcPool, normalized),
         ...await searchClientesFromBizlinks(bizlinksPool, normalized),
-        ...(ychiPool ? await searchRecipientsFromYchi(ychiPool, normalized) : [])
+        ...(includeYchiRecipients ? await searchRecipientsFromYchi(ychiPool, normalized) : [])
       ];
       const byDocument = new Map<string, FcFacturaCliente>();
 
@@ -216,9 +235,19 @@ export class DirectDbFcFacturaService implements FcFacturaService {
         }
       }
 
-      return [...byDocument.values()].slice(0, 50);
+      const customers = [...byDocument.values()].slice(0, 50);
+      const fiscalAddresses = await findCustomerFiscalAddresses(
+        bizlinksPool,
+        ychiPool,
+        customers.map((customer) => customer.numeroDocumento)
+      );
+
+      return customers.map((customer) => ({
+        ...customer,
+        direccionFiscal: fiscalAddresses.get(customer.numeroDocumento) ?? null
+      }));
     } finally {
-      if (ychiPool) await ychiPool.close();
+      await ychiPool.close();
       await bizlinksPool.close();
       await greFcPool.close();
     }
@@ -231,7 +260,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
     await greFcPool.connect();
 
     try {
-      const nextNumber = await nextFacturaNumber(bizlinksPool, greFcPool);
+      const nextNumber = await nextFacturaNumber(bizlinksPool);
       const numero = String(nextNumber).padStart(8, '0');
 
       return {
@@ -239,7 +268,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
         numero,
         serieNumeroFactura: `${FC_FACTURA_SERIE}-${numero}`,
         reserved: false,
-        source: 'BIZLINKS_SPE_EINVOICEHEADER_AND_GRE_FC_TRACE'
+        source: 'BIZLINKS_SPE_EINVOICEHEADER'
       };
     } finally {
       await greFcPool.close();
@@ -383,6 +412,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
   }
 
   async preview(input: FcFacturaPreviewInput) {
+    input = await resolveInvoiceExchangeRate(this.config, input);
     const validations = validatePreview(input);
     const totals = calculateTotalsByExclusion(input.items, input.tipoExclusionProducto);
 
@@ -392,12 +422,14 @@ export class DirectDbFcFacturaService implements FcFacturaService {
       serieNumeroFactura: `${FC_FACTURA_SERIE}-${input.numero}`,
       totals,
       validations,
+      financial: calculateFinancialSummary(input, totals),
       payload: input,
       procedurePlan: toFcFacturaProcedurePlan(input, getGreDefaults(this.config), totals)
     };
   }
 
   async declarar(input: FcFacturaPreviewInput, options: FcFacturaDeclareOptions): Promise<FcFacturaDeclareResult> {
+    input = await resolveInvoiceExchangeRate(this.config, input);
     const greFcPool = createGreFcPool(this.config);
     const bizlinksPool = createBizlinksPool(this.config);
 
@@ -441,7 +473,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
       await bizlinksTransaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
       await acquireAppLock(bizlinksTransaction, `FC_FACT_${FC_FACTURA_SERIE}_CORRELATIVO`);
 
-      const generatedSerieNumeroFactura = await nextFacturaSerie(bizlinksTransaction, greFcTransaction);
+      const generatedSerieNumeroFactura = await nextFacturaSerie(bizlinksTransaction);
       const numero = generatedSerieNumeroFactura.split('-')[1] ?? '00000001';
       const declaredInput: FcFacturaPreviewInput = {
         ...input,
@@ -459,9 +491,27 @@ export class DirectDbFcFacturaService implements FcFacturaService {
       });
 
       await executeStoredProcedure(bizlinksTransaction, 'dbo.USP_CabeceraFE', plan.USP_CabeceraFE);
+      await updateFacturaLegacyPrintHeaderFields(
+        bizlinksTransaction,
+        declaredInput,
+        totals,
+        generatedSerieNumeroFactura,
+        getGreDefaults(this.config).remitente.numeroDocumento
+      );
       for (const detailParams of plan.USP_DetalleFE) {
         await executeStoredProcedure(bizlinksTransaction, 'dbo.USP_DetalleFE', detailParams);
       }
+      await assertFacturaPaymentTerms(
+        bizlinksTransaction,
+        declaredInput,
+        totals,
+        getGreDefaults(this.config).remitente.numeroDocumento
+      );
+      await assertFacturaPrintAddons(
+        bizlinksTransaction,
+        generatedSerieNumeroFactura,
+        getGreDefaults(this.config).remitente.numeroDocumento
+      );
       await insertGuideInvoiceLinks(bizlinksTransaction, declaredInput, getGreDefaults(this.config).remitente.numeroDocumento);
       await executeStoredProcedure(bizlinksTransaction, 'dbo.USP_EnviaDocumentoFE', plan.USP_EnviaDocumentoFE);
 
@@ -469,7 +519,26 @@ export class DirectDbFcFacturaService implements FcFacturaService {
       assertFacturaInserted(status, generatedSerieNumeroFactura, declaredInput.items.length);
 
       await bizlinksTransaction.commit();
-      const guides = await insertFacturaGuidesSnapshotIfEmpty(greFcTransaction, prepared.operacionDbId, declaredInput);
+      await syncLegacyFacturaCorrelativeAndRecord(
+        this.config,
+        greFcTransaction,
+        prepared,
+        generatedSerieNumeroFactura
+      );
+      await mirrorLegacyFacturaSalesRegisterAndRecord(
+        this.config,
+        greFcTransaction,
+        prepared,
+        generatedSerieNumeroFactura,
+        declaredInput,
+        totals
+      );
+      const guides = await insertFacturaGuidesSnapshotIfEmpty(
+        greFcTransaction,
+        prepared.operacionDbId,
+        declaredInput,
+        this.config.bizlinksDb.database
+      );
       await insertFacturaDetailsSnapshotIfEmpty(greFcTransaction, prepared.operacionDbId, guides, declaredInput);
       await markFacturaInsertedBizlinks(greFcTransaction, prepared, generatedSerieNumeroFactura, declaredInput.items.length, status);
       await greFcTransaction.commit();
@@ -489,7 +558,7 @@ export class DirectDbFcFacturaService implements FcFacturaService {
 
       if (!greFcCommitted) {
         try {
-          await recordFacturaErrorAndCommit(greFcTransaction, options.operationId, error);
+          await recordFacturaErrorAndCommit(greFcTransaction, options.operationId, error, input, options);
           greFcCommitted = true;
         } catch {
           await rollbackQuietly(greFcTransaction);
@@ -532,8 +601,18 @@ export class DirectDbFcFacturaService implements FcFacturaService {
           o.creadoEn,
           o.razonSocialCliente,
           o.numeroDocumentoCliente,
-          o.estado AS estadoOperacion,
-          e.estado AS estadoEnvio,
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.FC_FACT_EVENTO cancellation
+            WHERE cancellation.operacionId = o.id
+              AND cancellation.tipo IN ('BAJA_ACEPTADA', 'BAJA_ADMINISTRATIVA')
+          ) THEN 'ANULADA' ELSE o.estado END AS estadoOperacion,
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM dbo.FC_FACT_EVENTO cancellation
+            WHERE cancellation.operacionId = o.id
+              AND cancellation.tipo IN ('BAJA_ACEPTADA', 'BAJA_ADMINISTRATIVA')
+          ) THEN 'ANULADA' ELSE e.estado END AS estadoEnvio,
           MAX(CONVERT(nvarchar(4000), e.mensaje)) AS mensajeEnvio,
           o.total,
           COUNT(d.id) AS items
@@ -542,7 +621,15 @@ export class DirectDbFcFacturaService implements FcFacturaService {
           ON e.operacionId = o.id
         LEFT JOIN dbo.FC_FACT_DETALLE d
           ON d.operacionId = o.id
+        WHERE o.serieNumeroFactura LIKE 'FF01-%'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM dbo.FC_FACT_EVENTO hidden
+            WHERE hidden.operacionId = o.id
+              AND hidden.tipo = 'OCULTO_REPORTE'
+          )
         GROUP BY
+          o.id,
           o.idOperacion,
           o.serieNumeroFactura,
           o.creadoEn,
@@ -685,7 +772,7 @@ async function acquireFacturaGuideLocks(transaction: sql.Transaction, input: FcF
   }
 }
 
-async function assertGuidesNotAlreadyTraced(
+export async function assertGuidesNotAlreadyTraced(
   transaction: sql.Transaction,
   input: FcFacturaPreviewInput,
   bizlinksDatabase: string
@@ -708,12 +795,20 @@ async function assertGuidesNotAlreadyTraced(
     FROM dbo.FC_FACT_GUIA g
     INNER JOIN dbo.FC_FACT_OPERACION o
       ON o.id = g.operacionId
-    LEFT JOIN ${quoteIdentifier(bizlinksDatabase)}.dbo.SPE_EINVOICEHEADER h
+    -- The separate Bizlinks transaction writes this table next. Do not retain
+    -- SERIALIZABLE range locks here; guide app locks protect the local trace.
+    LEFT JOIN ${quoteIdentifier(bizlinksDatabase)}.dbo.SPE_EINVOICEHEADER h WITH (READCOMMITTED)
       ON h.SERIENUMERO COLLATE DATABASE_DEFAULT = o.serieNumeroFactura
      AND h.TIPODOCUMENTO = '01'
     WHERE g.serieNumeroGuia IN (${params.join(', ')})
       AND o.estado IN ('PREPARANDO', 'INSERTADO_BIZLINKS', 'ACTIVADO', 'ACEPTADA')
       AND ISNULL(h.bl_estadoRegistro, '') <> 'E'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.FC_FACT_EVENTO cancellation
+        WHERE cancellation.operacionId = o.id
+          AND cancellation.tipo IN ('BAJA_ACEPTADA', 'BAJA_ADMINISTRATIVA')
+      )
   `);
 
   if (result.recordset.length > 0) {
@@ -757,7 +852,7 @@ async function upsertFacturaOperation(
   request.input('numeroDocumentoCliente', sql.VarChar(20), input.cliente.numeroDocumento);
   request.input('razonSocialCliente', sql.NVarChar(250), input.cliente.razonSocial);
   request.input('fechaEmision', sql.DateTime2, new Date(`${input.fechaEmision}T00:00:00-05:00`));
-  request.input('fechaVencimiento', sql.DateTime2, dueDateFromPaymentDate(input.fechaEmision, input.formaPago));
+  request.input('fechaVencimiento', sql.DateTime2, effectiveDueDateAsDate(input));
   request.input('moneda', sql.VarChar(3), input.moneda);
   request.input('formaPago', sql.NVarChar(200), input.formaPago);
   request.input('cuenta', sql.VarChar(50), input.cuenta);
@@ -831,7 +926,8 @@ async function upsertFacturaOperation(
 async function insertFacturaGuidesSnapshotIfEmpty(
   transaction: sql.Transaction,
   operacionDbId: number,
-  input: FcFacturaPreviewInput
+  input: FcFacturaPreviewInput,
+  bizlinksDatabase: string
 ) {
   const existing = await new sql.Request(transaction)
     .input('operacionDbId', sql.BigInt, operacionDbId)
@@ -850,16 +946,51 @@ async function insertFacturaGuidesSnapshotIfEmpty(
         .input('serieNumeroGuia', sql.VarChar(20), guide.serieNumeroGuia)
         .input('totalGuia', sql.Decimal(18, 2), totalGuia)
         .query(`
-          INSERT INTO dbo.FC_FACT_GUIA (
-            operacionId,
-            serieNumeroGuia,
-            totalGuia
-          )
-          VALUES (
-            @operacionDbId,
-            @serieNumeroGuia,
-            @totalGuia
-          );
+          DECLARE @guiaId bigint,
+                  @operacionAnteriorId bigint,
+                  @facturaAnterior varchar(13),
+                  @estadoBizlinks varchar(10),
+                  @bajaAceptada bit = 0;
+
+          SELECT
+            @guiaId = g.id,
+            @operacionAnteriorId = g.operacionId,
+            @facturaAnterior = o.serieNumeroFactura,
+            @estadoBizlinks = h.BL_ESTADOREGISTRO,
+            @bajaAceptada = CASE WHEN EXISTS (
+              SELECT 1
+              FROM dbo.FC_FACT_EVENTO cancellation
+              WHERE cancellation.operacionId = o.id
+                AND cancellation.tipo IN ('BAJA_ACEPTADA', 'BAJA_ADMINISTRATIVA')
+            ) THEN 1 ELSE 0 END
+          FROM dbo.FC_FACT_GUIA g WITH (UPDLOCK, HOLDLOCK)
+          INNER JOIN dbo.FC_FACT_OPERACION o ON o.id = g.operacionId
+          LEFT JOIN ${quoteIdentifier(bizlinksDatabase)}.dbo.SPE_EINVOICEHEADER h WITH (READCOMMITTED)
+            ON h.SERIENUMERO COLLATE DATABASE_DEFAULT = o.serieNumeroFactura
+           AND h.TIPODOCUMENTO = '01'
+          WHERE g.serieNumeroGuia = @serieNumeroGuia;
+
+          IF @guiaId IS NULL
+          BEGIN
+            INSERT INTO dbo.FC_FACT_GUIA (operacionId, serieNumeroGuia, totalGuia)
+            VALUES (@operacionDbId, @serieNumeroGuia, @totalGuia);
+          END
+          ELSE IF @operacionAnteriorId <> @operacionDbId
+            AND (ISNULL(@estadoBizlinks, '') = 'E' OR @bajaAceptada = 1)
+          BEGIN
+            UPDATE dbo.FC_FACT_DETALLE
+            SET operacionId = @operacionDbId
+            WHERE guiaId = @guiaId;
+
+            UPDATE dbo.FC_FACT_GUIA
+            SET operacionId = @operacionDbId,
+                totalGuia = @totalGuia
+            WHERE id = @guiaId;
+          END
+          ELSE IF @operacionAnteriorId <> @operacionDbId
+          BEGIN
+            RAISERROR('La guia %s ya esta relacionada con la factura vigente %s.', 16, 1, @serieNumeroGuia, @facturaAnterior);
+          END;
         `);
     }
   }
@@ -1019,11 +1150,381 @@ async function markFacturaInsertedBizlinks(
   });
 }
 
-async function recordFacturaErrorAndCommit(transaction: sql.Transaction, operationId: string, error: unknown) {
+async function syncLegacyFacturaCorrelativeAndRecord(
+  config: AppConfig,
+  greFcTransaction: sql.Transaction,
+  prepared: { operacionDbId: number; envioId: number },
+  serieNumeroFactura: string
+) {
+  try {
+    const result = await syncLegacyFacturaCorrelative(config, serieNumeroFactura);
+    await insertFacturaEvent(
+      greFcTransaction,
+      prepared.operacionDbId,
+      prepared.envioId,
+      'CORRELATIVO_LEGACY_SINCRONIZADO',
+      'Correlativo FF01 sincronizado en YCHIDB3.tbTipoDocu para el facturador antiguo',
+      result
+    );
+  } catch (error) {
+    await insertFacturaEvent(
+      greFcTransaction,
+      prepared.operacionDbId,
+      prepared.envioId,
+      'CORRELATIVO_LEGACY_PENDIENTE',
+      error instanceof Error ? error.message : String(error),
+      { serieNumeroFactura }
+    );
+  }
+}
+
+async function syncLegacyFacturaCorrelative(config: AppConfig, serieNumeroFactura: string) {
+  const [, numeroText = ''] = serieNumeroFactura.split('-');
+  const numero = Number(numeroText);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new Error(`No se pudo sincronizar correlativo legacy para ${serieNumeroFactura}.`);
+  }
+
+  const ychiPool = createYchiPool(config);
+  await ychiPool.connect();
+  const transaction = new sql.Transaction(ychiPool);
+  let committed = false;
+
+  try {
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+    await acquireAppLock(transaction, 'FC_FACTURA_LEGACY_CORRELATIVO_FF01');
+
+    const request = new sql.Request(transaction);
+    request.input('ff01Numero', sql.VarChar(8), String(numero).padStart(8, '0'));
+    request.input('f01Numero', sql.VarChar(7), String(numero).padStart(7, '0'));
+    request.input('numero', sql.Int, numero);
+    await request.query(`
+      UPDATE dbo.tbTipoDocu
+      SET numero = @ff01Numero
+      WHERE idTipoDocu = 42
+        AND (
+          ISNUMERIC(numero) = 0
+          OR CAST(numero AS int) < @numero
+        );
+
+      UPDATE dbo.tbTipoDocu
+      SET numero = @f01Numero
+      WHERE idTipoDocu = 1
+        AND (
+          ISNUMERIC(numero) = 0
+          OR CAST(numero AS int) < @numero
+        );
+    `);
+
+    const state = await new sql.Request(transaction).query<{
+      idTipoDocu: number;
+      serie: string;
+      numero: string;
+    }>(`
+      SELECT idTipoDocu, serie, numero
+      FROM dbo.tbTipoDocu
+      WHERE idTipoDocu IN (1, 42)
+      ORDER BY idTipoDocu;
+    `);
+
+    await transaction.commit();
+    committed = true;
+
+    return {
+      serieNumeroFactura,
+      tbTipoDocu: state.recordset
+    };
+  } finally {
+    if (!committed) await rollbackQuietly(transaction);
+    await ychiPool.close();
+  }
+}
+
+async function mirrorLegacyFacturaSalesRegisterAndRecord(
+  config: AppConfig,
+  greFcTransaction: sql.Transaction,
+  prepared: { operacionDbId: number; envioId: number },
+  serieNumeroFactura: string,
+  input: FcFacturaPreviewInput,
+  totals: ReturnType<typeof calculateTotalsByExclusion>
+) {
+  try {
+    const result = await mirrorLegacyFacturaSalesRegister(
+      config,
+      greFcTransaction,
+      serieNumeroFactura,
+      input,
+      totals
+    );
+    await insertFacturaEvent(
+      greFcTransaction,
+      prepared.operacionDbId,
+      prepared.envioId,
+      'REGISTRO_VENTAS_LEGACY_SINCRONIZADO',
+      'Factura FF01 reflejada en YCHIDB3.tbDocumentos para el Registro de Ventas antiguo',
+      result
+    );
+  } catch (error) {
+    await insertFacturaEvent(
+      greFcTransaction,
+      prepared.operacionDbId,
+      prepared.envioId,
+      'REGISTRO_VENTAS_LEGACY_PENDIENTE',
+      error instanceof Error ? error.message : String(error),
+      { serieNumeroFactura }
+    );
+  }
+}
+
+async function mirrorLegacyFacturaSalesRegister(
+  config: AppConfig,
+  greFcTransaction: sql.Transaction,
+  serieNumeroFactura: string,
+  input: FcFacturaPreviewInput,
+  totals: ReturnType<typeof calculateTotalsByExclusion>
+) {
+  const [, numeroText = ''] = serieNumeroFactura.split('-');
+  const numero = Number(numeroText);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new Error(`No se pudo crear espejo legacy para ${serieNumeroFactura}.`);
+  }
+
+  const guideRows = await findLegacyGuideDocuments(greFcTransaction, input.guias.map((guide) => guide.serieNumeroGuia));
+  const firstGuideDocument = guideRows.find((row) => row.idDocumentoYchiscom)?.idDocumentoYchiscom ?? 48;
+  const guideLabel = input.guias.map((guide) => legacyGuideLabel(guide.serieNumeroGuia)).join(', ');
+  const ychiPool = createYchiPool(config);
+  await ychiPool.connect();
+  const transaction = new sql.Transaction(ychiPool);
+  let committed = false;
+
+  try {
+    await transaction.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+    await acquireAppLock(transaction, 'FC_FACTURA_LEGACY_REGISTRO_VENTAS_FF01');
+
+    const request = new sql.Request(transaction);
+    request.input('legacyNumero', sql.VarChar(50), String(numero).padStart(7, '0'));
+    request.input('ruc', sql.VarChar(20), input.cliente.numeroDocumento);
+    request.input('formaPagoTexto', sql.VarChar(200), input.formaPago);
+    request.input('serieNumeroFactura', sql.VarChar(13), serieNumeroFactura);
+    request.input('idEmpleadoInput', sql.Int, input.vendedor.idEmpleado ?? null);
+    request.input('descClieProvInput', sql.VarChar(100), input.cliente.razonSocial.slice(0, 100));
+    request.input('monedaLegacy', sql.Char(1), input.moneda === 'USD' ? 'D' : 'S');
+    request.input('tipoCambio', sql.Money, input.moneda === 'USD' ? Number(input.tipoCambio ?? 0) : 1);
+    request.input('neto', sql.Money, totals.gravada);
+    request.input('igv', sql.Money, totals.igv);
+    request.input('total', sql.Money, totals.total);
+    request.input('observaciones', sql.VarChar(750), legacyAmountLabel(totals.total, input.moneda));
+    request.input('fechaEmision', sql.DateTime, new Date(`${input.fechaEmision}T00:00:00-05:00`));
+    request.input('fechaVencimiento', sql.DateTime, effectiveDueDateAsDate(input));
+    request.input('idDocumentoAnterior', sql.Int, firstGuideDocument);
+    request.input('correo', sql.VarChar(50), (input.ordenCompra?.trim() ?? '').slice(0, 50));
+    request.input('cuenta', sql.VarChar(50), input.cuenta);
+    request.input('nguia', sql.VarChar(750), guideLabel.slice(0, 750));
+
+    const result = await request.query<{
+      idDocumento: number;
+      idClieProv: number;
+      formaPago: number;
+      idDocumentoAnterior: number;
+    }>(`
+      IF EXISTS (
+        SELECT 1
+        FROM dbo.tbDocumentos WITH (UPDLOCK, HOLDLOCK)
+        WHERE idTipoDocu = 1 AND SeriDocu = 'F01' AND NumeDocu = @legacyNumero
+      )
+      BEGIN
+        SELECT TOP (1)
+          idDocumento,
+          idClieProv,
+          formaPago,
+          idDocumentoAnterior
+        FROM dbo.tbDocumentos
+        WHERE idTipoDocu = 1 AND SeriDocu = 'F01' AND NumeDocu = @legacyNumero;
+        RETURN;
+      END;
+
+      IF @monedaLegacy = 'D' AND @tipoCambio <= 0
+        THROW 51500, 'La factura USD no tiene tipo de cambio legacy valido.', 1;
+
+      DECLARE @idClieProv int;
+      SELECT TOP (1) @idClieProv = idClieProv
+      FROM dbo.tbClieProv WITH (UPDLOCK, HOLDLOCK)
+      WHERE RUC = @ruc
+        AND tipoClieProv = 'C'
+        AND Estado = 'A'
+      ORDER BY CASE WHEN origen = 'Y' THEN 0 ELSE 1 END, idClieProv DESC;
+
+      IF @idClieProv IS NULL
+        THROW 51501, 'No existe cliente legacy activo para la factura.', 1;
+
+      DECLARE @formaPago int;
+      SELECT TOP (1) @formaPago = idPropiedades
+      FROM dbo.tbPropiedades WITH (UPDLOCK, HOLDLOCK)
+      WHERE tipo = 'FPAG'
+        AND ISNULL(Valor, '') NOT LIKE '(obsoleto)%'
+        AND ISNULL(Nombre, '') NOT LIKE '(obsoleto)%'
+        AND (
+          LTRIM(RTRIM(Nombre)) = @formaPagoTexto
+          OR LTRIM(RTRIM(Valor)) = @formaPagoTexto
+        )
+      ORDER BY idPropiedades;
+
+      IF @formaPago IS NULL
+        THROW 51502, 'No existe forma de pago legacy para la factura.', 1;
+
+      DECLARE @idEmpleado int = COALESCE(@idEmpleadoInput, (
+        SELECT TOP (1) idempleado
+        FROM dbo.tbClieProv
+        WHERE idClieProv = @idClieProv
+      ), 1);
+
+      INSERT INTO dbo.tbDocumentos (
+        idTipoDocu,
+        idEmpleado,
+        idClieProv,
+        idUsuario,
+        SeriDocu,
+        NumeDocu,
+        DescClieProv,
+        formaPago,
+        Encargado,
+        Moneda,
+        Tica,
+        Neto,
+        Igv,
+        Total,
+        Observaciones,
+        FechaEmision,
+        FechaCreacion,
+        FechaVencimiento,
+        idENV,
+        Estado,
+        EstaCotiza,
+        idDocumentoAnterior,
+        idTCOP,
+        EstadoRecotiz,
+        CORREO,
+        cuenta,
+        origen,
+        negociable,
+        web,
+        intermediario,
+        llevacomp,
+        nguia
+      )
+      VALUES (
+        1,
+        @idEmpleado,
+        @idClieProv,
+        1,
+        'F01',
+        @legacyNumero,
+        @descClieProvInput,
+        @formaPago,
+        '',
+        @monedaLegacy,
+        @tipoCambio,
+        @neto,
+        @igv,
+        @total,
+        @observaciones,
+        @fechaEmision,
+        GETDATE(),
+        @fechaVencimiento,
+        0,
+        'A',
+        'P',
+        @idDocumentoAnterior,
+        0,
+        'N',
+        @correo,
+        @cuenta,
+        'Y',
+        'N',
+        NULL,
+        'N',
+        CASE WHEN NULLIF(@correo, '') IS NULL THEN 'N' ELSE 'S' END,
+        @nguia
+      );
+
+      SELECT TOP (1)
+        idDocumento,
+        idClieProv,
+        formaPago,
+        idDocumentoAnterior
+      FROM dbo.tbDocumentos
+      WHERE idTipoDocu = 1 AND SeriDocu = 'F01' AND NumeDocu = @legacyNumero;
+    `);
+
+    await transaction.commit();
+    committed = true;
+
+    return {
+      serieNumeroFactura,
+      legacySerieNumero: `F01-${String(numero).padStart(7, '0')}`,
+      guideRows,
+      tbDocumentos: result.recordset[0] ?? null
+    };
+  } finally {
+    if (!committed) await rollbackQuietly(transaction);
+    await ychiPool.close();
+  }
+}
+
+async function findLegacyGuideDocuments(transaction: sql.Transaction, series: string[]) {
+  if (series.length === 0) return [];
+
+  const request = new sql.Request(transaction);
+  const params = series.map((serie, index) => {
+    const name = `serie${index}`;
+    request.input(name, sql.VarChar(20), serie);
+    return `@${name}`;
+  });
+
+  const result = await request.query<{
+    serieNumeroGuia: string;
+    idDocumentoYchiscom: number | null;
+    numeroGuiaFisica: string | null;
+  }>(`
+    SELECT e.serieNumeroGuia, o.idDocumentoYchiscom, o.numeroGuiaFisica
+    FROM dbo.GRE_FC_ENVIO e
+    INNER JOIN dbo.GRE_FC_OPERACION o ON o.id = e.operacionId
+    WHERE e.serieNumeroGuia IN (${params.join(', ')})
+  `);
+
+  return result.recordset;
+}
+
+async function recordFacturaErrorAndCommit(
+  transaction: sql.Transaction,
+  operationId: string,
+  error: unknown,
+  input: FcFacturaPreviewInput,
+  options: FcFacturaDeclareOptions
+) {
   const message = error instanceof Error ? error.message : String(error);
+  const totals = calculateTotalsByExclusion(input.items, input.tipoExclusionProducto);
   const request = new sql.Request(transaction);
   request.input('operationId', sql.UniqueIdentifier, operationId);
   request.input('message', sql.NVarChar(sql.MAX), message);
+  request.input('serie', sql.VarChar(4), input.serie);
+  request.input('numero', sql.VarChar(8), input.numero);
+  request.input('serieNumeroFactura', sql.VarChar(13), `${input.serie}-${input.numero}`);
+  request.input('tipoDocumentoCliente', sql.VarChar(2), input.cliente.tipoDocumento);
+  request.input('numeroDocumentoCliente', sql.VarChar(20), input.cliente.numeroDocumento);
+  request.input('razonSocialCliente', sql.NVarChar(250), input.cliente.razonSocial);
+  request.input('fechaEmision', sql.DateTime2, new Date(`${input.fechaEmision}T00:00:00-05:00`));
+  request.input('fechaVencimiento', sql.DateTime2, effectiveDueDateAsDate(input));
+  request.input('moneda', sql.VarChar(3), input.moneda);
+  request.input('formaPago', sql.NVarChar(200), input.formaPago);
+  request.input('cuenta', sql.VarChar(50), input.cuenta);
+  request.input('ordenCompra', sql.NVarChar(2000), emptyToNull(input.ordenCompra));
+  request.input('observaciones', sql.NVarChar(sql.MAX), emptyToNull(input.observaciones));
+  request.input('gravada', sql.Decimal(18, 2), totals.gravada);
+  request.input('igv', sql.Decimal(18, 2), totals.igv);
+  request.input('total', sql.Decimal(18, 2), totals.total);
+  request.input('usuario', sql.NVarChar(128), options.user ?? null);
+  request.input('datosJson', sql.NVarChar(sql.MAX), JSON.stringify(input));
 
   await request.query(`
     DECLARE @operacionId bigint = (
@@ -1032,6 +1533,57 @@ async function recordFacturaErrorAndCommit(transaction: sql.Transaction, operati
       WHERE idOperacion = @operationId
       ORDER BY id DESC
     );
+
+    IF @operacionId IS NULL
+    BEGIN
+      INSERT INTO dbo.FC_FACT_OPERACION (
+        idOperacion,
+        serie,
+        numero,
+        serieNumeroFactura,
+        tipoDocumentoCliente,
+        numeroDocumentoCliente,
+        razonSocialCliente,
+        fechaEmision,
+        fechaVencimiento,
+        moneda,
+        formaPago,
+        cuenta,
+        ordenCompra,
+        observaciones,
+        gravada,
+        igv,
+        total,
+        estado,
+        usuario,
+        datosJson
+      )
+      VALUES (
+        @operationId,
+        @serie,
+        @numero,
+        @serieNumeroFactura,
+        @tipoDocumentoCliente,
+        @numeroDocumentoCliente,
+        @razonSocialCliente,
+        @fechaEmision,
+        @fechaVencimiento,
+        @moneda,
+        @formaPago,
+        @cuenta,
+        @ordenCompra,
+        @observaciones,
+        @gravada,
+        @igv,
+        @total,
+        'ERROR',
+        @usuario,
+        @datosJson
+      );
+
+      SET @operacionId = SCOPE_IDENTITY();
+    END;
+
     DECLARE @envioId bigint = (
       SELECT TOP (1) id
       FROM dbo.FC_FACT_ENVIO
@@ -1039,19 +1591,31 @@ async function recordFacturaErrorAndCommit(transaction: sql.Transaction, operati
       ORDER BY id DESC
     );
 
-    IF @operacionId IS NOT NULL
+    IF @envioId IS NULL
     BEGIN
-      UPDATE dbo.FC_FACT_OPERACION
-      SET estado = 'ERROR', actualizadoEn = SYSUTCDATETIME()
-      WHERE id = @operacionId;
+      INSERT INTO dbo.FC_FACT_ENVIO (
+        operacionId,
+        estado,
+        intentos,
+        mensaje
+      )
+      VALUES (
+        @operacionId,
+        'ERROR',
+        0,
+        @message
+      );
+
+      SET @envioId = SCOPE_IDENTITY();
     END;
 
-    IF @envioId IS NOT NULL
-    BEGIN
-      UPDATE dbo.FC_FACT_ENVIO
-      SET estado = 'ERROR', mensaje = @message, actualizadoEn = SYSUTCDATETIME()
-      WHERE id = @envioId;
-    END;
+    UPDATE dbo.FC_FACT_OPERACION
+    SET estado = 'ERROR', actualizadoEn = SYSUTCDATETIME()
+    WHERE id = @operacionId;
+
+    UPDATE dbo.FC_FACT_ENVIO
+    SET estado = 'ERROR', mensaje = @message, actualizadoEn = SYSUTCDATETIME()
+    WHERE id = @envioId;
 
     INSERT INTO dbo.FC_FACT_EVENTO (
       operacionId,
@@ -1103,47 +1667,47 @@ async function insertFacturaEvent(
 }
 
 async function nextFacturaNumber(
-  bizlinksSource: sql.ConnectionPool | sql.Transaction,
-  greFcSource?: sql.ConnectionPool | sql.Transaction
+  bizlinksSource: sql.ConnectionPool | sql.Transaction
 ) {
   const bizlinksRequest = createRequest(bizlinksSource);
   bizlinksRequest.input('seriePrefix', sql.VarChar(8), `${FC_FACTURA_SERIE}-%`);
 
-  const bizlinks = await bizlinksRequest.query<{ maxNumber: number | null }>(`
-    SELECT MAX(
-      CASE
-        WHEN ISNUMERIC(RIGHT(SERIENUMERO, 8)) = 1 THEN CONVERT(int, RIGHT(SERIENUMERO, 8))
-        ELSE NULL
-      END
-    ) AS maxNumber
-    FROM dbo.SPE_EINVOICEHEADER WITH (UPDLOCK, HOLDLOCK)
+  const bizlinks = await bizlinksRequest.query<{
+    serieNumero: string;
+    estadoRegistro: string | null;
+  }>(`
+    SELECT SERIENUMERO AS serieNumero, BL_ESTADOREGISTRO AS estadoRegistro
+    FROM dbo.SPE_EINVOICEHEADER
     WHERE SERIENUMERO LIKE @seriePrefix
       AND TIPODOCUMENTO = '01'
+      AND ISNUMERIC(RIGHT(SERIENUMERO, 8)) = 1
   `);
 
-  let greFcMax = 0;
-  if (greFcSource) {
-    const greFcRequest = createRequest(greFcSource);
-    greFcRequest.input('seriePrefix', sql.VarChar(8), `${FC_FACTURA_SERIE}-%`);
-
-    const greFc = await greFcRequest.query<{ maxNumber: number | null }>(`
-      SELECT MAX(
-        CASE
-          WHEN ISNUMERIC(RIGHT(serieNumeroFactura, 8)) = 1 THEN CONVERT(int, RIGHT(serieNumeroFactura, 8))
-          ELSE NULL
-        END
-      ) AS maxNumber
-      FROM dbo.FC_FACT_OPERACION WITH (UPDLOCK, HOLDLOCK)
-      WHERE serieNumeroFactura LIKE @seriePrefix
-    `);
-    greFcMax = Number(greFc.recordset[0]?.maxNumber ?? 0);
-  }
-
-  return Math.max(Number(bizlinks.recordset[0]?.maxNumber ?? 0), greFcMax) + 1;
+  return nextAvailableFacturaNumber(bizlinks.recordset);
 }
 
-async function nextFacturaSerie(transaction: sql.Transaction, greFcTransaction?: sql.Transaction) {
-  const nextNumber = await nextFacturaNumber(transaction, greFcTransaction);
+export function nextAvailableFacturaNumber(
+  rows: Array<{ serieNumero: string; estadoRegistro: string | null }>
+) {
+  const occupied = new Set<number>();
+  let lastValid = 0;
+
+  for (const row of rows) {
+    const number = Number(row.serieNumero.slice(-8));
+    if (!Number.isInteger(number) || number <= 0) continue;
+    occupied.add(number);
+    if ((row.estadoRegistro ?? '').trim().toUpperCase() !== 'E') {
+      lastValid = Math.max(lastValid, number);
+    }
+  }
+
+  let candidate = lastValid + 1;
+  while (occupied.has(candidate)) candidate += 1;
+  return candidate;
+}
+
+async function nextFacturaSerie(transaction: sql.Transaction) {
+  const nextNumber = await nextFacturaNumber(transaction);
 
   if (!nextNumber || nextNumber < 1) {
     throw new Error(`No se pudo generar correlativo ${FC_FACTURA_SERIE}`);
@@ -1294,7 +1858,7 @@ async function getFacturaBizlinksStatuses(pool: sql.ConnectionPool, series: stri
       h.BL_ESTADOREGISTRO AS bl_estadoRegistro,
       r.bl_estadoProceso,
       r.process_state,
-      r.bl_mensaje,
+      COALESCE(NULLIF(r.bl_mensaje, ''), err.mensaje) AS bl_mensaje,
       r.bl_mensajeSunat,
       r.bl_url_pdf
     FROM dbo.SPE_EINVOICEHEADER h
@@ -1302,6 +1866,16 @@ async function getFacturaBizlinksStatuses(pool: sql.ConnectionPool, series: stri
       ON r.NUMERODOCUMENTOEMISOR = h.NUMERODOCUMENTOEMISOR
      AND r.SERIENUMERO = h.SERIENUMERO
      AND r.TIPODOCUMENTO = h.TIPODOCUMENTO
+    OUTER APPLY (
+      SELECT TOP (1)
+        CONVERT(nvarchar(30), l.CODIGOERROR) + ': ' + l.DESCRIPCIONERROR AS mensaje
+      FROM dbo.SPE_ERROR_LOG l
+      WHERE l.NUMERODOCUMENTOEMISOR = h.NUMERODOCUMENTOEMISOR
+        AND l.SERIENUMERO = h.SERIENUMERO
+        AND l.TIPODOCUMENTO = h.TIPODOCUMENTO
+        AND h.BL_ESTADOREGISTRO = 'E'
+      ORDER BY l.FECHAREGISTRO DESC
+    ) err
     WHERE h.SERIENUMERO IN (${params.join(', ')})
       AND h.TIPODOCUMENTO = '01'
   `);
@@ -1325,7 +1899,12 @@ async function executeStoredProcedure(transaction: sql.Transaction, procedureNam
     request.input(param.name, sql.NVarChar, param.value);
   }
 
-  await request.execute(procedureName);
+  try {
+    await request.execute(procedureName);
+  } catch (error) {
+    if (error instanceof Error) error.message = `${procedureName}: ${error.message}`;
+    throw error;
+  }
 }
 
 async function acquireAppLock(transaction: sql.Transaction, resource: string) {
@@ -1366,21 +1945,166 @@ async function rollbackQuietly(transaction?: sql.Transaction) {
   }
 }
 
-function dueDateFromPaymentDate(fechaEmision: string, formaPago: string) {
-  return new Date(`${dueDateFromPayment(fechaEmision, formaPago)}T00:00:00-05:00`);
+async function assertFacturaPaymentTerms(
+  transaction: sql.Transaction,
+  input: FcFacturaPreviewInput,
+  totals: ReturnType<typeof calculateTotalsByExclusion>,
+  numeroDocumentoEmisor: string
+) {
+  if (input.diasPago <= 0) return;
+
+  const expected = calculateFinancialSummary(input, totals).netoPendiente;
+  const request = new sql.Request(transaction);
+  request.input('numeroDocumentoEmisor', sql.NVarChar(20), numeroDocumentoEmisor);
+  request.input('serieNumero', sql.NVarChar(13), `${input.serie}-${input.numero}`);
+  const result = await request.query<{
+    montoNetoPendiente: string | null;
+    totalCuotas: number | string | null;
+  }>(`
+    SELECT
+      MAX(CASE WHEN clave = 'montoNetoPendiente' THEN valor END) AS montoNetoPendiente,
+      SUM(CASE WHEN clave LIKE 'montoPagoCuota%'
+        THEN CONVERT(decimal(18, 2), valor)
+        ELSE CONVERT(decimal(18, 2), 0)
+      END) AS totalCuotas
+    FROM dbo.SPE_EINVOICEHEADER_ADD
+    WHERE NUMERODOCUMENTOEMISOR = @numeroDocumentoEmisor
+      AND SERIENUMERO = @serieNumero
+      AND TIPODOCUMENTO = '01';
+  `);
+  const persistedNet = Number(result.recordset[0]?.montoNetoPendiente ?? 0);
+  const quotaTotal = Number(result.recordset[0]?.totalCuotas ?? 0);
+
+  if (
+    Math.abs(persistedNet - expected) > 0.001
+    || Math.abs(quotaTotal - expected) > 0.001
+    || persistedNet > totals.total
+    || quotaTotal > totals.total
+  ) {
+    throw new Error(
+      `Cuotas Bizlinks inconsistentes antes de activar: total=${totalsLabel(totals.total)}, `
+      + `neto=${totalsLabel(persistedNet)}, cuotas=${totalsLabel(quotaTotal)}, esperado=${totalsLabel(expected)}.`
+    );
+  }
 }
 
-function dueDateFromPayment(fechaEmision: string, formaPago: string) {
-  const match = /(\d+)/.exec(formaPago);
-  const days = match ? Number(match[1]) : 0;
-  const date = new Date(`${fechaEmision}T00:00:00-05:00`);
-  date.setDate(date.getDate() + days);
+async function updateFacturaLegacyPrintHeaderFields(
+  transaction: sql.Transaction,
+  input: FcFacturaPreviewInput,
+  totals: ReturnType<typeof calculateTotalsByExclusion>,
+  serieNumeroFactura: string,
+  numeroDocumentoEmisor: string
+) {
+  const request = new sql.Request(transaction);
+  request.input('numeroDocumentoEmisor', sql.NVarChar(20), numeroDocumentoEmisor);
+  request.input('serieNumero', sql.NVarChar(13), serieNumeroFactura);
+  request.input('textoLeyenda1', sql.NVarChar(200), invoiceAmountInWords(totals.total, input.moneda));
+  request.input('codigoAuxiliar1001', sql.NVarChar(4), '9415');
+  request.input('textoAuxiliar1001', sql.NVarChar(100), normalizeLegacyPaymentTerm(input.formaPago));
+  request.input('codigoAuxiliar402', sql.NVarChar(4), '9999');
+  request.input('textoAuxiliar402', sql.NVarChar(40), legacyPrintExchangeRate(input));
+  request.input('codigoAuxiliar403', sql.NVarChar(4), '9998');
+  request.input('textoAuxiliar403', sql.NVarChar(1), input.tipoDetraccion === '000' ? 'N' : 'S');
 
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0')
-  ].join('-');
+  const result = await request.query<{ affectedRows: number }>(`
+    UPDATE dbo.SPE_EINVOICEHEADER
+    SET textoLeyenda_1 = @textoLeyenda1,
+        codigoAuxiliar100_1 = @codigoAuxiliar1001,
+        textoAuxiliar100_1 = @textoAuxiliar1001,
+        codigoAuxiliar40_2 = @codigoAuxiliar402,
+        textoAuxiliar40_2 = @textoAuxiliar402,
+        codigoAuxiliar40_3 = @codigoAuxiliar403,
+        textoAuxiliar40_3 = @textoAuxiliar403
+    WHERE NUMERODOCUMENTOEMISOR = @numeroDocumentoEmisor
+      AND SERIENUMERO = @serieNumero
+      AND TIPODOCUMENTO = '01';
+
+    SELECT @@ROWCOUNT AS affectedRows;
+  `);
+
+  if (Number(result.recordset[0]?.affectedRows ?? 0) !== 1) {
+    throw new Error(`No se pudieron completar los campos de impresion legacy para ${serieNumeroFactura}.`);
+  }
+}
+
+async function assertFacturaPrintAddons(
+  transaction: sql.Transaction,
+  serieNumeroFactura: string,
+  numeroDocumentoEmisor: string
+) {
+  const required = [
+    'departamentoAdquiriente',
+    'direccionAdquiriente',
+    'distritoAdquiriente',
+    'paisAdquiriente',
+    'provinciaAdquiriente',
+    'ubigeoAdquiriente',
+    'urbanizacionAdquiriente',
+    'ordenCompra',
+    'fechaVencimiento'
+  ];
+  const request = new sql.Request(transaction);
+  request.input('numeroDocumentoEmisor', sql.NVarChar(20), numeroDocumentoEmisor);
+  request.input('serieNumero', sql.NVarChar(13), serieNumeroFactura);
+  const values = required.map((clave, index) => {
+    const name = `addon${index}`;
+    request.input(name, sql.NVarChar(80), clave);
+    return `(@${name})`;
+  });
+
+  const result = await request.query<{ clave: string; total: number }>(`
+    SELECT expected.clave,
+      COUNT(addon.clave) AS total
+    FROM (VALUES ${values.join(', ')}) expected(clave)
+    LEFT JOIN dbo.SPE_EINVOICEHEADER_ADD addon
+      ON addon.NUMERODOCUMENTOEMISOR = @numeroDocumentoEmisor
+     AND addon.SERIENUMERO = @serieNumero
+     AND addon.TIPODOCUMENTO = '01'
+     AND addon.clave = expected.clave
+    GROUP BY expected.clave
+    HAVING COUNT(addon.clave) = 0;
+  `);
+
+  if (result.recordset.length > 0) {
+    throw new Error(
+      `Faltan datos para representacion impresa FF01: ${
+        result.recordset.map((row) => row.clave).join(', ')
+      }.`
+    );
+  }
+}
+
+async function resolveInvoiceExchangeRate(config: AppConfig, input: FcFacturaPreviewInput): Promise<FcFacturaPreviewInput> {
+  if (input.moneda === 'PEN') {
+    return { ...input, tipoCambio: 1 };
+  }
+
+  const ychiPool = createYchiPool(config);
+  await ychiPool.connect();
+
+  try {
+    const request = new sql.Request(ychiPool);
+    request.input('fecha', sql.DateTime, new Date(`${input.fechaEmision}T00:00:00-05:00`));
+    const result = await request.query<{ tipoCambio: number | string | null }>(`
+      SELECT CONVERT(decimal(10, 3), venta) AS tipoCambio
+      FROM dbo.TBTICA
+      WHERE IDMONEDA = 'D'
+        AND CONVERT(date, fecha) = CONVERT(date, @fecha);
+    `);
+    const tipoCambio = Number(result.recordset[0]?.tipoCambio ?? 0);
+
+    if (!Number.isFinite(tipoCambio) || tipoCambio <= 0) {
+      throw new Error(`No existe tipo de cambio de venta para ${input.fechaEmision}. Registre el tipo de cambio en Ychiscom antes de emitir en dolares.`);
+    }
+
+    return { ...input, tipoCambio };
+  } finally {
+    await ychiPool.close();
+  }
+}
+
+function effectiveDueDateAsDate(input: Pick<FcFacturaPreviewInput, 'fechaEmision' | 'fechaVencimiento' | 'diasPago'>) {
+  return new Date(`${effectiveDueDate(input)}T00:00:00-05:00`);
 }
 
 function lineTotal(item: FcFacturaPreviewInput['items'][number], tipoExclusionProducto: FcFacturaPreviewInput['tipoExclusionProducto'] = 'GRAVADA') {
@@ -1499,6 +2223,186 @@ function listDefaultFcOffsetAccounts(warnings: string[]): FcFacturaCuenta[] {
     label: `${item.denominacion}-${item.cuenta}`,
     fuente: 'FC_OFFSET_DEFAULT' as const
   }));
+}
+
+async function findCustomerFiscalAddresses(
+  pool: sql.ConnectionPool,
+  ychiPool: sql.ConnectionPool,
+  customerDocuments: string[]
+): Promise<Map<string, FcFacturaDireccionFiscal>> {
+  const documents = [...new Set(customerDocuments.map((item) => item.trim()).filter(Boolean))];
+  const addresses = new Map<string, FcFacturaDireccionFiscal>();
+  if (documents.length === 0) return addresses;
+
+  const request = new sql.Request(pool);
+  const values = documents.map((document, index) => {
+    const name = `fiscalDocument${index}`;
+    request.input(name, sql.VarChar(20), document);
+    return `(@${name})`;
+  });
+
+  const result = await request.query<{
+    numeroDocumento: string;
+    direccion: string | null;
+    ubigeo: string | null;
+    distrito: string | null;
+    provincia: string | null;
+    departamento: string | null;
+    pais: string | null;
+    fuente: 'AAA_ADQUIRIENTE' | 'FACTURA_ACEPTADA' | null;
+  }>(`
+    WITH requested(numeroDocumento) AS (
+      SELECT numeroDocumento FROM (VALUES ${values.join(', ')}) source(numeroDocumento)
+    )
+    SELECT requested.numeroDocumento,
+      COALESCE(repository.direccion, history.direccion) AS direccion,
+      COALESCE(repository.ubigeo, history.ubigeo) AS ubigeo,
+      COALESCE(repository.distrito, history.distrito) AS distrito,
+      COALESCE(repository.provincia, history.provincia) AS provincia,
+      COALESCE(repository.departamento, history.departamento) AS departamento,
+      COALESCE(repository.pais, history.pais, 'PE') AS pais,
+      CASE
+        WHEN repository.direccion IS NOT NULL THEN 'AAA_ADQUIRIENTE'
+        WHEN history.direccion IS NOT NULL THEN 'FACTURA_ACEPTADA'
+        ELSE NULL
+      END AS fuente
+    FROM requested
+    OUTER APPLY (
+      SELECT TOP (1)
+        NULLIF(NULLIF(LTRIM(RTRIM(a.DIRECCIONADQUIRIENTE)), ''), '-') AS direccion,
+        NULLIF(NULLIF(LTRIM(RTRIM(a.UBIGEOADQUIRIENTE)), ''), '-') AS ubigeo,
+        NULLIF(NULLIF(LTRIM(RTRIM(a.DISTRITOADQUIRIENTE)), ''), '-') AS distrito,
+        NULLIF(NULLIF(LTRIM(RTRIM(a.PROVINCIAADQUIRIENTE)), ''), '-') AS provincia,
+        NULLIF(NULLIF(LTRIM(RTRIM(a.DEPARTAMENTOADQUIRIENTE)), ''), '-') AS departamento,
+        COALESCE(NULLIF(NULLIF(LTRIM(RTRIM(a.PAISADQUIRIENTE)), ''), '-'), 'PE') AS pais
+      FROM dbo.AAA_ADQUIRIENTE a
+      WHERE LTRIM(RTRIM(a.NUMERODOCUMENTOADQUIRIENTE)) = requested.numeroDocumento
+        AND NULLIF(NULLIF(LTRIM(RTRIM(a.DIRECCIONADQUIRIENTE)), ''), '-') IS NOT NULL
+        AND LTRIM(RTRIM(a.UBIGEOADQUIRIENTE)) LIKE '[0-9][0-9][0-9][0-9][0-9][0-9]'
+      ORDER BY a.DATESTAMP DESC
+    ) repository
+    OUTER APPLY (
+      SELECT TOP (1)
+        fiscal.direccion,
+        fiscal.ubigeo,
+        fiscal.distrito,
+        fiscal.provincia,
+        fiscal.departamento,
+        fiscal.pais
+      FROM dbo.SPE_EINVOICEHEADER h
+      INNER JOIN dbo.SPE_EINVOICE_RESPONSE response
+        ON response.NUMERODOCUMENTOEMISOR = h.NUMERODOCUMENTOEMISOR
+       AND response.SERIENUMERO = h.SERIENUMERO
+       AND response.TIPODOCUMENTO = h.TIPODOCUMENTO
+       AND response.process_state = '_3_COMPLETED'
+       AND response.bl_mensajeSunat LIKE '%"codigo":"0"%'
+      CROSS APPLY (
+        SELECT
+          MAX(CASE WHEN extra.clave = 'direccionAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS direccion,
+          MAX(CASE WHEN extra.clave = 'ubigeoAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS ubigeo,
+          MAX(CASE WHEN extra.clave = 'distritoAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS distrito,
+          MAX(CASE WHEN extra.clave = 'provinciaAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS provincia,
+          MAX(CASE WHEN extra.clave = 'departamentoAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS departamento,
+          MAX(CASE WHEN extra.clave = 'paisAdquiriente'
+            THEN NULLIF(NULLIF(LTRIM(RTRIM(extra.valor)), ''), '-') END) AS pais
+        FROM dbo.SPE_EINVOICEHEADER_ADD extra
+        WHERE extra.NUMERODOCUMENTOEMISOR = h.NUMERODOCUMENTOEMISOR
+          AND extra.SERIENUMERO = h.SERIENUMERO
+          AND extra.TIPODOCUMENTO = h.TIPODOCUMENTO
+      ) fiscal
+      WHERE h.TIPODOCUMENTO = '01'
+        AND h.NUMERODOCUMENTOADQUIRIENTE = requested.numeroDocumento
+        AND fiscal.direccion IS NOT NULL
+        AND fiscal.ubigeo LIKE '[0-9][0-9][0-9][0-9][0-9][0-9]'
+      ORDER BY h.FECHAEMISION DESC, h.SERIENUMERO DESC
+    ) history;
+  `);
+
+  for (const row of result.recordset) {
+    if (
+      !row.direccion
+      || !row.ubigeo
+      || !row.distrito
+      || !row.provincia
+      || !row.departamento
+      || !row.fuente
+    ) continue;
+
+    addresses.set(row.numeroDocumento.trim(), {
+      direccion: row.direccion.trim(),
+      ubigeo: row.ubigeo.trim(),
+      distrito: row.distrito.trim(),
+      provincia: row.provincia.trim(),
+      departamento: row.departamento.trim(),
+      pais: row.pais?.trim() || 'PE',
+      fuente: row.fuente
+    });
+  }
+
+  const missingDocuments = documents.filter((document) => !addresses.has(document));
+  if (missingDocuments.length === 0) return addresses;
+
+  const ychiRequest = new sql.Request(ychiPool);
+  const ychiParams = missingDocuments.map((document, index) => {
+    const name = `ychiFiscalDocument${index}`;
+    ychiRequest.input(name, sql.VarChar(20), document);
+    return `@${name}`;
+  });
+  const ychiResult = await ychiRequest.query<{
+    numeroDocumento: string;
+    direccion: string;
+    ubigeo: string;
+    distrito: string;
+    provincia: string;
+    departamento: string;
+  }>(`
+    SELECT numeroDocumento, direccion, ubigeo, distrito, provincia, departamento
+    FROM (
+      SELECT
+        REPLACE(REPLACE(LTRIM(RTRIM(c.RUC)), '-', ''), ' ', '') AS numeroDocumento,
+        LTRIM(RTRIM(c.Direccion)) AS direccion,
+        CASE
+          WHEN LTRIM(RTRIM(c.ubigeo)) LIKE '[0-9][0-9][0-9][0-9][0-9][0-9]'
+          THEN LTRIM(RTRIM(c.ubigeo))
+          ELSE ''
+        END AS ubigeo,
+        LTRIM(RTRIM(dist.nombre)) AS distrito,
+        LTRIM(RTRIM(prov.nombre)) AS provincia,
+        LTRIM(RTRIM(dpto.nombre)) AS departamento,
+        ROW_NUMBER() OVER (
+          PARTITION BY REPLACE(REPLACE(LTRIM(RTRIM(c.RUC)), '-', ''), ' ', '')
+          ORDER BY CASE WHEN c.tipoClieProv = 'C' THEN 0 ELSE 1 END, c.idClieProv
+        ) AS rowNumber
+      FROM dbo.tbClieProv c
+      LEFT JOIN dbo.tbDepartamento dpto ON dpto.idDepartamento = c.idDepartamento
+      LEFT JOIN dbo.tbProvincia prov ON prov.idProvincia = c.IdProvincia
+      LEFT JOIN dbo.tbDistrito dist ON dist.idDistrito = c.IdDistrito
+      WHERE c.Estado = 'A'
+        AND REPLACE(REPLACE(LTRIM(RTRIM(c.RUC)), '-', ''), ' ', '') IN (${ychiParams.join(', ')})
+        AND NULLIF(NULLIF(LTRIM(RTRIM(c.Direccion)), ''), '-') IS NOT NULL
+    ) source
+    WHERE rowNumber = 1;
+  `);
+
+  for (const row of ychiResult.recordset) {
+    if (!row.distrito || !row.provincia || !row.departamento) continue;
+    addresses.set(row.numeroDocumento.trim(), {
+      direccion: row.direccion.trim(),
+      ubigeo: row.ubigeo.trim(),
+      distrito: row.distrito.trim(),
+      provincia: row.provincia.trim(),
+      departamento: row.departamento.trim(),
+      pais: 'PE',
+      fuente: 'YCHIDB3'
+    });
+  }
+
+  return addresses;
 }
 
 async function searchClientesFromGreFc(pool: sql.ConnectionPool, query: string): Promise<FcFacturaCliente[]> {
@@ -1830,6 +2734,7 @@ function validatePreview(input: FcFacturaPreviewInput): FcFacturaValidation[] {
   const selectedGuides = new Set(input.guias.map((guide) => guide.serieNumeroGuia));
   const itemGuides = new Set(input.items.map((item) => item.serieNumeroGuia));
   const totals = calculateTotalsByExclusion(input.items, input.tipoExclusionProducto);
+  const financial = calculateFinancialSummary(input, totals);
 
   validations.push({
     code: 'SERIE_FACTURA_FF01',
@@ -1850,21 +2755,63 @@ function validatePreview(input: FcFacturaPreviewInput): FcFacturaValidation[] {
   });
 
   validations.push({
-    code: 'MONEDA_PEN',
-    severity: input.moneda === 'PEN' ? 'ok' : 'error',
-    message: 'La factura FC se emite en soles (PEN).'
+    code: 'MONEDA_Y_TIPO_CAMBIO',
+    severity: input.moneda === 'PEN' || financial.tipoCambio > 0 ? 'ok' : 'error',
+    message: input.moneda === 'PEN'
+      ? 'Moneda PEN con tipo de cambio 1.000.'
+      : `Moneda USD con tipo de cambio de venta Ychiscom ${financial.tipoCambio.toFixed(3)}.`
+  });
+
+  const fiscalAddress = input.cliente.direccionFiscal;
+  validations.push({
+    code: 'DIRECCION_FISCAL_ADQUIRENTE',
+    severity: fiscalAddress ? 'ok' : 'error',
+    message: fiscalAddress
+      ? `Direccion fiscal: ${fiscalAddress.direccion} (${fiscalAddress.ubigeo}), fuente ${fiscalAddress.fuente}.`
+      : 'El cliente no tiene direccion fiscal y ubigeo verificables. Actualice AAA_ADQUIRIENTE antes de declarar.'
   });
 
   validations.push({
     code: 'TIPO_DETRACCION',
-    severity: ['037', '025'].includes(input.tipoDetraccion) ? 'ok' : 'error',
-    message: `TipoDet aplicado: ${input.tipoDetraccion === '025' ? '025 - 10%' : '037 - 12%'}.`
+    severity: input.tipoDetraccion === '025' ? 'warning' : 'ok',
+    message: input.tipoDetraccion === '025'
+      ? 'Detraccion 025 - 10% respaldada por comprobantes Flexo historicos; confirme su aplicacion con Contabilidad.'
+      : `TipoDet aplicado: ${input.tipoDetraccion === '000' ? '000 - Sin detraccion' : '037 - 12%'}.`
+  });
+
+  validations.push({
+    code: 'REGLA_MONTO_DETRACCION',
+    severity: detractionAmountSeverity(input.tipoDetraccion, financial.totalEquivalentePen),
+    message: detractionAmountMessage(
+      input.tipoDetraccion,
+      financial.totalEquivalentePen,
+      input.moneda,
+      totals.total
+    )
   });
 
   validations.push({
     code: 'TIPO_EXCLUSION_PRODUCTO',
-    severity: ['GRAVADA', 'GRATUITA', 'EXONERADA', 'INAFECTA'].includes(input.tipoExclusionProducto) ? 'ok' : 'error',
-    message: `Tipo de exclusion del producto: ${input.tipoExclusionProducto}.`
+    severity: input.tipoExclusionProducto === 'GRATUITA' ? 'error' : 'ok',
+    message: exclusionValidationMessage(input.tipoExclusionProducto)
+  });
+
+  validations.push({
+    code: 'FECHA_VENCIMIENTO',
+    severity: effectiveDueDate(input) >= input.fechaEmision ? 'ok' : 'error',
+    message: `Vencimiento ${financial.fechaVencimiento}.`
+  });
+
+  const paymentNumbers = [...input.formaPago.matchAll(/\d+/g)].map((match) => Number(match[0]));
+  const hasMultipleSchedule = input.diasPago > 0 && new Set(paymentNumbers.filter((value) => value > 0)).size > 1;
+  validations.push({
+    code: 'CRONOGRAMA_PAGO',
+    severity: hasMultipleSchedule ? 'error' : 'ok',
+    message: hasMultipleSchedule
+      ? 'La forma de pago contiene varias fechas. Aun no se generan cuotas multiples; seleccione una forma con un solo vencimiento.'
+      : input.diasPago > 0
+        ? `Credito a ${input.diasPago} dias, con vencimiento ${financial.fechaVencimiento} y cuota neta ${input.moneda} ${financial.netoPendiente.toFixed(2)}.`
+        : 'Pago al contado, sin cuotas pendientes.'
   });
 
   validations.push({
@@ -1877,6 +2824,23 @@ function validatePreview(input: FcFacturaPreviewInput): FcFacturaValidation[] {
     code: 'TOTALES_POSITIVOS',
     severity: totals.total > 0 ? 'ok' : 'warning',
     message: 'La factura debe tener total mayor a cero antes de declararse.'
+  });
+
+  const longDescriptions = input.items
+    .map((item) => ({
+      codigoProducto: item.codigoProducto,
+      length: invoiceItemDescription(item.descripcion, input.numeroRegistro).length
+    }))
+    .filter((item) => item.length > FACTURA_DETAIL_DESCRIPTION_MAX_LENGTH);
+
+  validations.push({
+    code: 'DESCRIPCION_NR_BIZLINKS',
+    severity: longDescriptions.length === 0 ? 'ok' : 'error',
+    message: longDescriptions.length === 0
+      ? 'Descripciones de items compatibles con Bizlinks FE.'
+      : `Hay descripciones demasiado largas al agregar NR: ${
+        longDescriptions.map((item) => `${item.codigoProducto}/${item.length}`).join(', ')
+      }.`
   });
 
   const invalidUnits = input.items
@@ -1905,12 +2869,106 @@ function validatePreview(input: FcFacturaPreviewInput): FcFacturaValidation[] {
   return validations;
 }
 
+function detractionAmountSeverity(
+  tipoDetraccion: FcFacturaPreviewInput['tipoDetraccion'],
+  total: number
+): FcFacturaValidation['severity'] {
+  if (tipoDetraccion !== '000' && total <= 700) return 'error';
+  if (tipoDetraccion === '000' && total > 700) return 'warning';
+
+  return 'ok';
+}
+
+function detractionAmountMessage(
+  tipoDetraccion: FcFacturaPreviewInput['tipoDetraccion'],
+  totalPen: number,
+  moneda: FcFacturaPreviewInput['moneda'],
+  totalDocumento: number
+) {
+  const totalLabel = moneda === 'PEN'
+    ? `S/ ${totalsLabel(totalDocumento)}`
+    : `USD ${totalsLabel(totalDocumento)} (S/ ${totalsLabel(totalPen)})`;
+
+  if (tipoDetraccion !== '000' && totalPen <= 700) {
+    return `Para importes de hasta S/ 700.00 no seleccione detraccion ${tipoDetraccion}; use 000 - Sin detraccion para evitar rechazo. Total actual: ${totalLabel}.`;
+  }
+
+  if (tipoDetraccion === '000' && totalPen > 700) {
+    return `Operacion mayor a S/ 700.00 emitida sin detraccion por seleccion del usuario. Total actual: ${totalLabel}.`;
+  }
+
+  return tipoDetraccion === '000'
+    ? `Sin detraccion correcto para este importe. Total actual: ${totalLabel}.`
+    : `Detraccion ${tipoDetraccion} compatible con el umbral de importe. Total actual: ${totalLabel}.`;
+}
+
+function exclusionValidationMessage(tipoExclusionProducto: FcFacturaPreviewInput['tipoExclusionProducto']) {
+  switch (tipoExclusionProducto) {
+    case 'EXONERADA':
+      return 'Operacion exonerada onerosa: codigo de afectacion 20, sin IGV.';
+    case 'INAFECTA':
+      return 'Operacion inafecta onerosa: codigo de afectacion 30, sin IGV.';
+    case 'GRATUITA':
+      return 'Operacion gratuita aun no se habilita para declarar: requiere tratamiento especifico de transferencia gratuita.';
+    case 'GRAVADA':
+    default:
+      return 'Operacion gravada al 18%, estructura respaldada por facturas FF01 aceptadas.';
+  }
+}
+
+function totalsLabel(total: number) {
+  return roundMoney(total).toFixed(2);
+}
+
+function calculateFinancialSummary(
+  input: FcFacturaPreviewInput,
+  totals: ReturnType<typeof calculateTotalsByExclusion>
+) {
+  const tipoCambio = input.moneda === 'USD' ? Number(input.tipoCambio ?? 0) : 1;
+  const tipoCambioDetraccion = input.moneda === 'USD' ? roundMoney(tipoCambio) : 1;
+  const percent = input.tipoDetraccion === '037' ? 12 : input.tipoDetraccion === '025' ? 10 : 0;
+  const detraccionMonedaDocumento = roundMoney(totals.total * percent / 100);
+
+  return {
+    moneda: input.moneda,
+    tipoCambio,
+    diasPago: input.diasPago,
+    fechaVencimiento: effectiveDueDate(input),
+    totalEquivalentePen: roundMoney(totals.total * tipoCambio),
+    detraccionMonedaDocumento,
+    detraccionPen: roundMoney(detraccionMonedaDocumento * tipoCambioDetraccion),
+    netoPendiente: roundMoney(totals.total - detraccionMonedaDocumento)
+  };
+}
+
 function normalizeInvoiceUnit(value: string) {
   const unit = value.trim().toUpperCase();
   if (unit === 'UND' || unit === 'UNIDAD') return 'NIU';
   if (unit === 'MILLAR') return 'MIL';
   if (unit === 'MLL') return 'MIL';
   return unit || 'NIU';
+}
+
+export function legacyGuideLabel(serieNumeroGuia: string) {
+  return serieNumeroGuia.trim();
+}
+
+function legacyAmountLabel(total: number, moneda: FcFacturaPreviewInput['moneda']) {
+  return invoiceAmountInWords(total, moneda).slice(0, 750);
+}
+
+function normalizeLegacyPaymentTerm(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '-';
+
+  return trimmed
+    .replace(/\bdias\b/giu, 'días')
+    .replace(/\bdia\b/giu, 'día');
+}
+
+function legacyPrintExchangeRate(input: FcFacturaPreviewInput) {
+  if (!input.tipoCambio || input.tipoCambio <= 0) return null;
+  return roundMoney(input.tipoCambio).toFixed(2);
 }
 
 function quoteIdentifier(value: string) {

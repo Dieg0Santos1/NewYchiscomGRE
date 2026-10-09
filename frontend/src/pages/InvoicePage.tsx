@@ -8,16 +8,21 @@ import { facturaFcService } from '../services/FacturaFcService';
 import type {
   FcFacturaCliente,
   FcFacturaCuenta,
+  FcFacturaDetraccion,
   FcFacturaFormaPago,
   FcFacturaGuiaPendiente,
   FcFacturaItem,
+  FcFacturaMoneda,
   FcFacturaPreviewResponse
 } from '../types/factura';
+
+const FC_FACTURA_MAX_GUIAS = 5;
 
 export function InvoicePage() {
   const [query, setQuery] = useState('');
   const [clientes, setClientes] = useState<FcFacturaCliente[]>([]);
   const [cliente, setCliente] = useState<FcFacturaCliente | null>(null);
+  const [manualFiscalUbigeo, setManualFiscalUbigeo] = useState('');
   const [guias, setGuias] = useState<FcFacturaGuiaPendiente[]>([]);
   const [selectedGuides, setSelectedGuides] = useState<Set<string>>(() => new Set());
   const [items, setItems] = useState<FcFacturaItem[]>([]);
@@ -28,10 +33,13 @@ export function InvoicePage() {
   const [formaPagoTipo, setFormaPagoTipo] = useState<'CONTADO' | 'CREDITO'>('CONTADO');
   const [formaPago, setFormaPago] = useState('');
   const [cuenta, setCuenta] = useState('');
-  const [tipoDetraccion, setTipoDetraccion] = useState<'037' | '025'>('037');
+  const [moneda, setMoneda] = useState<FcFacturaMoneda>('PEN');
+  const [tipoDetraccion, setTipoDetraccion] = useState<FcFacturaDetraccion>('000');
   const [tipoExclusionProducto, setTipoExclusionProducto] = useState<'GRAVADA' | 'GRATUITA' | 'EXONERADA' | 'INAFECTA'>('GRAVADA');
   const [vendedor, setVendedor] = useState({ idEmpleado: null as number | null, nombre: '' });
   const [ordenCompra, setOrdenCompra] = useState('');
+  const [numeroRegistro, setNumeroRegistro] = useState('');
+  const [fechaVencimiento, setFechaVencimiento] = useState(todayDate());
   const [observaciones, setObservaciones] = useState('');
   const [message, setMessage] = useState('');
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -44,15 +52,20 @@ export function InvoicePage() {
   const [previewConfirmed, setPreviewConfirmed] = useState(false);
   const [declareConfirmOpen, setDeclareConfirmOpen] = useState(false);
   const [successSerie, setSuccessSerie] = useState('');
+  const [declareError, setDeclareError] = useState<{ serie: string; message: string } | null>(null);
 
   const totals = useMemo(() => calculateTotals(items, tipoExclusionProducto), [items, tipoExclusionProducto]);
   const selectedGuideRows = guias.filter((guide) => selectedGuides.has(guide.serieNumeroGuia));
   const selectedCuenta = cuentas.find((item) => item.cuenta === cuenta);
-  const canPreview = Boolean(cliente && selectedGuides.size > 0 && items.length > 0 && formaPago.trim() && cuenta.trim());
+  const selectedFormaPago = formasPago.find((item) => item.valor === formaPago);
+  const canPreview = Boolean(cliente && selectedGuides.size > 0 && items.length > 0 && formaPago.trim() && cuenta.trim() && fechaVencimiento);
   const selectedClientLabel = cliente ? `${cliente.numeroDocumento} - ${cliente.razonSocial}` : '';
+  const effectiveFiscalAddress = cliente ? fiscalAddressWithManualUbigeo(cliente, manualFiscalUbigeo) : null;
+  const needsManualFiscalUbigeo = Boolean(cliente?.direccionFiscal && !hasValidUbigeo(cliente.direccionFiscal.ubigeo));
   const previewReady = Boolean(preview && preview.validations.every((item) => item.severity !== 'error'));
   const declarationBlockReason = getDeclarationBlockReason({
     cliente,
+    fiscalAddress: effectiveFiscalAddress,
     selectedGuides,
     items,
     formaPago,
@@ -87,7 +100,9 @@ export function InvoicePage() {
         setCatalogWarnings(cuentasResult.warnings);
         setCuenta(cuentasResult.cuentas[0]?.cuenta ?? '');
         setFormasPago(formasPagoResult);
-        setFormaPago(defaultFormaPago(formasPagoResult, 'CONTADO'));
+        const nextFormaPago = defaultFormaPago(formasPagoResult, 'CONTADO');
+        setFormaPago(nextFormaPago);
+        setFechaVencimiento(paymentDueDate(formasPagoResult.find((item) => item.valor === nextFormaPago)?.dias ?? 0));
       })
       .catch((error) => {
         if (cancelled) return;
@@ -135,6 +150,7 @@ export function InvoicePage() {
 
   async function selectCliente(nextCliente: FcFacturaCliente) {
     setCliente(nextCliente);
+    setManualFiscalUbigeo(hasValidUbigeo(nextCliente.direccionFiscal?.ubigeo) ? nextCliente.direccionFiscal?.ubigeo ?? '' : '');
     setQuery(`${nextCliente.numeroDocumento} - ${nextCliente.razonSocial}`);
     setClientes([]);
     setSelectedGuides(new Set());
@@ -165,6 +181,10 @@ export function InvoicePage() {
   function toggleGuide(guide: FcFacturaGuiaPendiente, checked: boolean) {
     const nextSelected = new Set(selectedGuides);
     if (checked) {
+      if (!nextSelected.has(guide.serieNumeroGuia) && nextSelected.size >= FC_FACTURA_MAX_GUIAS) {
+        setMessage(`La factura permite como maximo ${FC_FACTURA_MAX_GUIAS} GRE.`);
+        return;
+      }
       nextSelected.add(guide.serieNumeroGuia);
     } else {
       nextSelected.delete(guide.serieNumeroGuia);
@@ -231,6 +251,7 @@ export function InvoicePage() {
 
     setDeclaring(true);
     setDeclareConfirmOpen(false);
+    setDeclareError(null);
     setMessage(`Declarando factura ${serieNumeroFactura}...`);
 
     try {
@@ -244,9 +265,21 @@ export function InvoicePage() {
         : `Factura ${result.serieNumeroFactura} enviada a Bizlinks.`);
       setSuccessSerie(result.serieNumeroFactura);
     } catch (error) {
-      setMessage(formatInvoiceError(error, 'No se pudo declarar la factura.'));
+      const errorMessage = formatInvoiceError(error, 'No se pudo declarar la factura.');
+      setMessage(errorMessage);
+      setDeclareError({ serie: serieNumeroFactura, message: errorMessage });
+      await refreshNextSerieQuietly();
     } finally {
       setDeclaring(false);
+    }
+  }
+
+  async function refreshNextSerieQuietly() {
+    try {
+      const nextSerie = await facturaFcService.getNextSerie();
+      setSerieNumeroFactura(nextSerie.serieNumeroFactura);
+    } catch {
+      // The error modal is more important than a secondary refresh failure.
     }
   }
 
@@ -255,18 +288,25 @@ export function InvoicePage() {
       serie: 'FF01' as const,
       numero: serieNumeroFactura.split('-')[1] ?? '00000001',
       fechaEmision: todayDate(),
-      moneda: 'PEN' as const,
+      moneda,
+      tipoCambio: null,
       formaPago,
+      diasPago: selectedFormaPago?.dias ?? 0,
+      fechaVencimiento,
       cuenta,
       tipoDetraccion,
       tipoExclusionProducto,
       vendedor,
       ordenCompra,
+      numeroRegistro,
       observaciones,
       cliente: {
         tipoDocumento: currentCliente.tipoDocumento,
         numeroDocumento: currentCliente.numeroDocumento,
-        razonSocial: currentCliente.razonSocial
+        razonSocial: currentCliente.razonSocial,
+        direccionFiscal: currentCliente.direccionFiscal
+          ? fiscalAddressWithManualUbigeo(currentCliente, manualFiscalUbigeo)
+          : null
       },
       guias: [...selectedGuides].map((serieNumeroGuia) => ({ serieNumeroGuia })),
       items
@@ -277,6 +317,7 @@ export function InvoicePage() {
     setQuery('');
     setClientes([]);
     setCliente(null);
+    setManualFiscalUbigeo('');
     setGuias([]);
     setSelectedGuides(new Set());
     setItems([]);
@@ -286,7 +327,10 @@ export function InvoicePage() {
     setPreviewConfirmed(false);
     setMessage('');
     setVendedor({ idEmpleado: null, nombre: '' });
+    setMoneda('PEN');
     setOrdenCompra('');
+    setNumeroRegistro('');
+    setFechaVencimiento(paymentDueDate(0));
     setObservaciones('');
   }
 
@@ -294,6 +338,7 @@ export function InvoicePage() {
     setQuery('');
     setClientes([]);
     setCliente(null);
+    setManualFiscalUbigeo('');
     setGuias([]);
     setSelectedGuides(new Set());
     setItems([]);
@@ -303,9 +348,12 @@ export function InvoicePage() {
     setPreviewConfirmed(false);
     setVendedor({ idEmpleado: null, nombre: '' });
     setOrdenCompra('');
+    setNumeroRegistro('');
+    setFechaVencimiento(paymentDueDate(0));
     setObservaciones('');
     setTipoExclusionProducto('GRAVADA');
-    setTipoDetraccion('037');
+    setTipoDetraccion('000');
+    setMoneda('PEN');
     setFormaPagoTipo('CONTADO');
     setFormaPago(defaultFormaPago(formasPago, 'CONTADO'));
   }
@@ -316,6 +364,7 @@ export function InvoicePage() {
     if (!cliente || value === selectedClientLabel) return;
 
     setCliente(null);
+    setManualFiscalUbigeo('');
     setGuias([]);
     setSelectedGuides(new Set());
     setItems([]);
@@ -327,8 +376,10 @@ export function InvoicePage() {
   }
 
   function changeFormaPagoTipo(nextType: 'CONTADO' | 'CREDITO') {
+    const nextFormaPago = defaultFormaPago(formasPago, nextType);
     setFormaPagoTipo(nextType);
-    setFormaPago(defaultFormaPago(formasPago, nextType));
+    setFormaPago(nextFormaPago);
+    setFechaVencimiento(paymentDueDate(formasPago.find((item) => item.valor === nextFormaPago)?.dias ?? 0));
     setPreview(null);
     setPreviewConfirmed(false);
   }
@@ -339,7 +390,7 @@ export function InvoicePage() {
     setPreviewConfirmed(false);
   }
 
-  function changeTipoDetraccion(value: '037' | '025') {
+  function changeTipoDetraccion(value: FcFacturaDetraccion) {
     setTipoDetraccion(value);
     setPreview(null);
     setPreviewConfirmed(false);
@@ -347,6 +398,7 @@ export function InvoicePage() {
 
   function changeFormaPago(value: string) {
     setFormaPago(value);
+    setFechaVencimiento(paymentDueDate(formasPago.find((item) => item.valor === value)?.dias ?? 0));
     setPreview(null);
     setPreviewConfirmed(false);
   }
@@ -357,8 +409,26 @@ export function InvoicePage() {
     setPreviewConfirmed(false);
   }
 
+  function changeNumeroRegistro(value: string) {
+    setNumeroRegistro(value);
+    setPreview(null);
+    setPreviewConfirmed(false);
+  }
+
+  function changeFechaVencimiento(value: string) {
+    setFechaVencimiento(value);
+    setPreview(null);
+    setPreviewConfirmed(false);
+  }
+
   function changeObservaciones(value: string) {
     setObservaciones(value);
+    setPreview(null);
+    setPreviewConfirmed(false);
+  }
+
+  function changeManualFiscalUbigeo(value: string) {
+    setManualFiscalUbigeo(value.replace(/\D/g, '').slice(0, 6));
     setPreview(null);
     setPreviewConfirmed(false);
   }
@@ -418,6 +488,26 @@ export function InvoicePage() {
         <FormField label="SERIE Y NUMERO" required>
           <input className="auto-field invoice-control-sm" value={serieNumeroFactura} readOnly />
         </FormField>
+        {cliente && (
+          <FormField label="UBIGEO FISCAL" required={needsManualFiscalUbigeo}>
+            <input
+              className={needsManualFiscalUbigeo ? '' : 'auto-field'}
+              inputMode="numeric"
+              maxLength={6}
+              value={manualFiscalUbigeo || cliente.direccionFiscal?.ubigeo || ''}
+              readOnly={!needsManualFiscalUbigeo}
+              onChange={(event) => changeManualFiscalUbigeo(event.target.value)}
+              placeholder="6 digitos"
+            />
+            {cliente.direccionFiscal ? (
+              <div className="field-note invoice-fiscal-note">
+                {cliente.direccionFiscal.direccion} - {cliente.direccionFiscal.distrito}, {cliente.direccionFiscal.provincia}, {cliente.direccionFiscal.departamento}
+              </div>
+            ) : (
+              <div className="field-note invoice-fiscal-note">No se encontro direccion fiscal para este cliente.</div>
+            )}
+          </FormField>
+        )}
         <FormField label="CUENTA CONTABLE">
           <select value={cuenta} onChange={(event) => changeCuenta(event.target.value)}>
             <option value="">Seleccionar</option>
@@ -429,10 +519,24 @@ export function InvoicePage() {
           </select>
           {selectedCuenta && <div className="field-note">Cuenta: {selectedCuenta.cuenta}</div>}
         </FormField>
+        <FormField label="MONEDA" required>
+          <select value={moneda} onChange={(event) => {
+            setMoneda(event.target.value as FcFacturaMoneda);
+            setPreview(null);
+            setPreviewConfirmed(false);
+          }}>
+            <option value="PEN">PEN - Soles</option>
+            <option value="USD">USD - Dolares</option>
+          </select>
+          <div className="field-note">
+            {moneda === 'USD' ? 'Tipo de cambio venta de Ychiscom al previsualizar.' : 'Importes expresados en soles.'}
+          </div>
+        </FormField>
         <FormField label="TIPODET">
-          <select value={tipoDetraccion} onChange={(event) => changeTipoDetraccion(event.target.value as '037' | '025')}>
+          <select value={tipoDetraccion} onChange={(event) => changeTipoDetraccion(event.target.value as FcFacturaDetraccion)}>
+            <option value="000">000 - Sin detraccion</option>
             <option value="037">037 - 12%</option>
-            <option value="025">025 - 10%</option>
+            <option value="025">025 - 10% (confirmar con Contabilidad)</option>
           </select>
         </FormField>
 
@@ -446,31 +550,51 @@ export function InvoicePage() {
               <option value="">Seleccionar</option>
               {filteredFormasPago.map((item) => (
                 <option key={item.id} value={item.valor}>
-                  {displayFormaPagoName(item.nombre)}
+                  {displayFormaPagoName(item.nombre)}{item.dias > 0 ? ` - ${item.dias} dias` : ''}
                 </option>
               ))}
             </select>
           </div>
         </FormField>
+        <FormField label="VENCIMIENTO" required>
+          <input
+            className="invoice-control-sm"
+            type="date"
+            min={todayDate()}
+            value={fechaVencimiento}
+            onChange={(event) => changeFechaVencimiento(event.target.value)}
+          />
+        </FormField>
         <FormField label="OC" wide>
           <input value={ordenCompra} onChange={(event) => changeOrdenCompra(event.target.value)} placeholder="Orden de compra" />
+        </FormField>
+        <FormField label="NR">
+          <input
+            value={numeroRegistro}
+            onChange={(event) => changeNumeroRegistro(event.target.value)}
+            maxLength={80}
+            placeholder="NR 5002700171"
+          />
         </FormField>
         <FormField label="TIPO EXCLUSION" wide>
           <div className="invoice-exclusion-options">
             {(['GRAVADA', 'GRATUITA', 'EXONERADA', 'INAFECTA'] as const).map((option) => (
-              <label key={option}>
+              <label key={option} className={option === 'GRATUITA' ? 'invoice-option-disabled' : ''}>
                 <input
                   type="radio"
                   name="tipoExclusionProducto"
                   value={option}
                   checked={tipoExclusionProducto === option}
+                  disabled={option === 'GRATUITA'}
                   onChange={() => {
                     setTipoExclusionProducto(option);
                     setPreview(null);
                     setPreviewConfirmed(false);
                   }}
                 />
-                <span>{displayExclusion(option)}</span>
+                <span title={option === 'GRATUITA' ? 'Pendiente de tratamiento especifico de transferencia gratuita' : undefined}>
+                  {displayExclusion(option)}{option === 'GRATUITA' ? ' (por validar)' : ''}
+                </span>
               </label>
             ))}
           </div>
@@ -495,8 +619,8 @@ export function InvoicePage() {
       <section className="invoice-summary-layout">
         <div className="invoice-guides-panel">
           <div className="invoice-section-heading">
-            <h2>Guias T001 aceptadas pendientes</h2>
-            <span>{selectedGuides.size} seleccionada(s)</span>
+            <h2>Guias aceptadas pendientes de facturar</h2>
+            <span>{selectedGuides.size} seleccionada(s) (maximo {FC_FACTURA_MAX_GUIAS})</span>
           </div>
           {warnings.map((warning) => <div key={warning} className="inline-message">{warning}</div>)}
           <div className="list-table-wrap invoice-table-wrap">
@@ -541,7 +665,7 @@ export function InvoicePage() {
             <div><span>Items</span><strong>{items.length}</strong></div>
             <div><span>Gravada</span><strong>{totals.gravada.toFixed(2)}</strong></div>
             <div><span>IGV</span><strong>{totals.igv.toFixed(2)}</strong></div>
-            <div><span>Total</span><strong>{totals.total.toFixed(2)}</strong></div>
+            <div><span>Total {moneda}</span><strong>{totals.total.toFixed(2)}</strong></div>
           </div>
         </aside>
       </section>
@@ -607,8 +731,9 @@ export function InvoicePage() {
           </button>
           <button
             type="button"
-            className="declare-button"
-            disabled={!canDeclare || declaring}
+            className={`declare-button${!canDeclare && !declaring ? ' declare-button-blocked' : ''}`}
+            disabled={declaring}
+            aria-disabled={!canDeclare || declaring}
             title={canDeclare ? 'Declarar factura en Bizlinks' : declarationBlockReason}
             onClick={requestDeclareInvoice}
           >
@@ -625,10 +750,20 @@ export function InvoicePage() {
           onClose={() => setSuccessSerie('')}
         />
       )}
+      {declareError && (
+        <InvoiceDeclarationErrorModal
+          serieNumeroFactura={declareError.serie}
+          message={declareError.message}
+          onClose={() => setDeclareError(null)}
+        />
+      )}
       {previewOpen && preview && (
         <InvoicePreviewModal
           preview={preview}
-          items={items}
+          items={items.map((item) => ({
+            ...item,
+            descripcion: invoicePreviewDescription(item.descripcion, numeroRegistro)
+          }))}
           tipoExclusionProducto={tipoExclusionProducto}
           onClose={() => setPreviewOpen(false)}
           onConfirm={() => {
@@ -645,6 +780,7 @@ export function InvoicePage() {
           total={totals.total}
           guideCount={selectedGuides.size}
           itemCount={items.length}
+          moneda={moneda}
           declaring={declaring}
           onCancel={() => setDeclareConfirmOpen(false)}
           onConfirm={() => void declareInvoice()}
@@ -666,6 +802,7 @@ type InvoiceDeclareConfirmModalProps = {
   total: number;
   guideCount: number;
   itemCount: number;
+  moneda: FcFacturaMoneda;
   declaring: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -677,6 +814,7 @@ function InvoiceDeclareConfirmModal({
   total,
   guideCount,
   itemCount,
+  moneda,
   declaring,
   onCancel,
   onConfirm
@@ -698,7 +836,7 @@ function InvoiceDeclareConfirmModal({
         <dl className="invoice-confirm-summary">
           <div><dt>Guias</dt><dd>{guideCount}</dd></div>
           <div><dt>Items</dt><dd>{itemCount}</dd></div>
-          <div><dt>Total</dt><dd>{total.toFixed(2)}</dd></div>
+          <div><dt>Total</dt><dd>{moneda} {total.toFixed(2)}</dd></div>
         </dl>
         <div className="success-modal-actions">
           <button type="button" className="secondary-button" onClick={onCancel} disabled={declaring}>
@@ -732,6 +870,43 @@ function InvoiceSendingModal({ serieNumeroFactura, cliente }: InvoiceSendingModa
           La factura de {cliente || 'cliente seleccionado'} se esta registrando en Bizlinks.
           Al terminar podra verla en Reportes para seguir el estado SUNAT y el PDF.
         </p>
+      </section>
+    </div>
+  );
+}
+
+type InvoiceDeclarationErrorModalProps = {
+  serieNumeroFactura: string;
+  message: string;
+  onClose: () => void;
+};
+
+function InvoiceDeclarationErrorModal({ serieNumeroFactura, message, onClose }: InvoiceDeclarationErrorModalProps) {
+  function goToReports() {
+    onClose();
+    window.location.hash = '/guias/listado';
+  }
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="invoice-error-title">
+      <section className="success-modal invoice-confirm-modal">
+        <button type="button" className="success-modal-close" aria-label="Cerrar" onClick={onClose}>
+          <X size={18} />
+        </button>
+        <div className="success-modal-icon invoice-error-icon">
+          <AlertTriangle size={42} />
+        </div>
+        <h2 id="invoice-error-title">No se declaro la factura</h2>
+        <div className="success-modal-serie">{serieNumeroFactura}</div>
+        <p>{message}</p>
+        <div className="success-modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>
+            Cerrar
+          </button>
+          <button type="button" className="tool-button primary-tool" onClick={goToReports}>
+            Ver reportes
+          </button>
+        </div>
       </section>
     </div>
   );
@@ -875,13 +1050,21 @@ function formatDateTime(value: Date) {
   });
 }
 
-function formatDueDate(formaPago: string) {
-  const match = /(\d+)/.exec(formaPago);
-  const days = match ? Number(match[1]) : 0;
-  const date = new Date();
+function paymentDueDate(days: number) {
+  const date = new Date(`${todayDate()}T00:00:00-05:00`);
   date.setDate(date.getDate() + days);
 
-  return formatDateTime(date);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
+function invoicePreviewDescription(description: string, numeroRegistro: string) {
+  const nr = numeroRegistro.trim();
+
+  return nr ? `${description.trim()}  NR ${nr}` : description;
 }
 
 function displayFormaPagoName(value: string) {
@@ -910,8 +1093,23 @@ function isUserFacingWarning(value: string) {
   return !/AAA_GUIAFACTURADA|tbGuiasFactura|permiso SELECT|permission was denied|Pendiente auditar|No se pudo validar no duplicidad/i.test(value);
 }
 
+function hasValidUbigeo(value: string | undefined | null) {
+  return /^\d{6}$/.test(value?.trim() ?? '');
+}
+
+function fiscalAddressWithManualUbigeo(cliente: FcFacturaCliente, manualFiscalUbigeo: string) {
+  if (!cliente.direccionFiscal) return null;
+
+  const manualUbigeo = manualFiscalUbigeo.trim();
+  return {
+    ...cliente.direccionFiscal,
+    ubigeo: hasValidUbigeo(manualUbigeo) ? manualUbigeo : cliente.direccionFiscal.ubigeo
+  };
+}
+
 function getDeclarationBlockReason(input: {
   cliente: FcFacturaCliente | null;
+  fiscalAddress: FcFacturaCliente['direccionFiscal'] | null;
   selectedGuides: Set<string>;
   items: FcFacturaItem[];
   formaPago: string;
@@ -922,6 +1120,8 @@ function getDeclarationBlockReason(input: {
   previewConfirmed: boolean;
 }) {
   if (!input.cliente) return 'Seleccione un cliente antes de declarar.';
+  if (!input.fiscalAddress) return 'El cliente no tiene direccion fiscal para declarar.';
+  if (!hasValidUbigeo(input.fiscalAddress.ubigeo)) return 'Complete el ubigeo fiscal de 6 digitos antes de declarar.';
   if (input.selectedGuides.size === 0) return 'Seleccione una o mas GRE aceptadas para facturar.';
   if (input.items.length === 0) return 'Seleccione una guia con items para facturar.';
   if (!input.formaPago.trim()) return 'Seleccione una forma de pago.';

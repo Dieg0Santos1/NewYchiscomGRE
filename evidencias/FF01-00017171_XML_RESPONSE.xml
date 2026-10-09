@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ebizResponse>
+    <genericInvokeResponse>
+        <commonResponse>
+            <summaryResult>
+                <total>1</total>
+            </summaryResult>
+            <status>OK</status>
+            <descriptionStatus>Successful</descriptionStatus>
+        </commonResponse>
+        <xmlResult>
+            <document>
+                <typeDocument>01</typeDocument>
+                <idDocument>FF01-00017171</idDocument>
+                <status>SIGNED</status>
+                <statusDocument>EM_01</statusDocument>
+                <statusSunat>AC_03</statusSunat>
+                <signTime>2026-09-16</signTime>
+                <responseTime>2026-09-16</responseTime>
+                <signatureValue>27bnB11lFkPT2b/tSUJyq6cC2sUDuckm1iC6hI572RLlTBsUKCJIjHUBvIKZkJFv9Qijigl6rVV0DjXbMppkhKaekvU0zQdHXVUsSYc2DYxCbQsNl/ayUJ/36ckSpMhSAIkbUdjpsqgTGKywGb59pvpTCRrWfYGpxtpdZMPJTNGGV+nQBfus8BdMuUJj00Wg4HrL2ZxP+whILqHI2wp67oUt9NaZQIhOKkT8nCODQuV6W/ibvglrG3tEpu3zAnn3/c46DFOKJ3DACYApaMN44eHQXV4ENVASj8cCO5MXpdM5DwQ5bqE50BWyf6rfmiJNKIKGqctPm/tHwXEFRLuPHQ==</signatureValue>
+                <emisionTime>2026-09-16</emisionTime>
+                <messageSunat>{"codigo":"0","mensaje":"La factura número FF01-00017171, ha sido aceptada"}</messageSunat>
+                <hashCode>kmczM7MM5mtvlqKlSIFChAdZoKc=</hashCode>
+                <pdfFileUrl>https://sfeintegrador.bizlinks.com.pe/files/x%275A556573616D42526B646F4D676B476666654B4D6E2F4742576C4276683431452B2B364E78662B332B556F59334A366C7A74645A4935544472395847362F6931%27</pdfFileUrl>
+                <xmlFileSignUrl>https://sfeintegrador.bizlinks.com.pe/files/x%274F737271735356533449386C746B5647756E624C704139716D6A335A7964396C316454717374462B6963565A465342736A77314F51597157754D6B2B5077384A%27</xmlFileSignUrl>
+                <xmlFileSunatUrl>https://sfeintegrador.bizlinks.com.pe/files/x%276B793753686B6F4B4E79376F6B714A4B4A43676C73797556444D6558737243752B41567572337872416957632B4230656E4B38555841524F692F784C6C562F4A387A48754F776E304242383D%27</xmlFileSunatUrl>
+                <numeroDocumentoEmisor>20259402965</numeroDocumentoEmisor>
+                <tipoDocumentoAdquiriente>6</tipoDocumentoAdquiriente>
+                <numeroDocumentoAdquiriente>10406265574</numeroDocumentoAdquiriente>
+                <adicionales xsi:nil="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"/>
+            </document>
+        </xmlResult>
+    </genericInvokeResponse>
+</ebizResponse>

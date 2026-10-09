@@ -6,6 +6,7 @@ const statusClass: Record<GuideStatus, string> = {
   Enviado: 'status-sent',
   'En proceso': 'status-processing',
   Aceptado: 'status-accepted',
+  Anulado: 'status-cancelled',
   Rechazado: 'status-rejected',
   Error: 'status-rejected'
 };
