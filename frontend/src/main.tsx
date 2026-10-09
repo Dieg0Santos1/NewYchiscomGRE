@@ -124,6 +124,7 @@ function Shell() {
 
 function moduleForRoute(route: string): AuthModule {
   if (route.startsWith('/traslado')) return 'traslado';
+  if (route === '/reportes/especiales') return 'especiales';
   if (route.startsWith('/flexo')) return 'flexo';
   return 'fc';
 }
@@ -137,6 +138,7 @@ function isRouteAllowed(route: string, user: AuthUser) {
 function defaultRoute(modules: AuthModule[]) {
   if (modules.includes('fc')) return '/guias/nueva';
   if (modules.includes('flexo')) return '/flexo/ajustes';
+  if (modules.includes('especiales')) return '/reportes/especiales';
   return '/traslado/guias/nueva';
 }
 

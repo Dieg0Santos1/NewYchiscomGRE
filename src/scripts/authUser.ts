@@ -22,7 +22,7 @@ if (!username || !/^[a-z0-9._-]{3,80}$/.test(username)) {
 }
 if (!displayName) throw new Error('Use --name con el nombre visible.');
 if (invalidModules.length > 0) throw new Error(`Modulos no reconocidos: ${invalidModules.join(', ')}.`);
-if (modules.length === 0) throw new Error('Use --modules con fc, flexo y/o traslado, separados por coma.');
+if (modules.length === 0) throw new Error('Use --modules con fc, flexo, traslado y/o especiales, separados por coma.');
 
 const passwordEnvironmentName = argument('--password-env').trim();
 const password = passwordEnvironmentName ? process.env[passwordEnvironmentName] ?? '' : generatePassword();

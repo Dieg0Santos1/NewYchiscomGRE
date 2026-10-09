@@ -60,10 +60,10 @@ function modulesForRequest(req: Request): AuthModule[] {
     || path.startsWith('/api/fc-legacy')
     || path.startsWith('/api/gre-formularios')
     || path.startsWith('/api/gre/')
-    || path.startsWith('/api/reportes-especiales')
   ) {
     return ['fc'];
   }
+  if (path.startsWith('/api/reportes-especiales')) return ['especiales'];
 
   return [];
 }

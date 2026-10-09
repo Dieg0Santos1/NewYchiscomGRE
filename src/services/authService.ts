@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import type { AppConfig } from '../config/env.js';
 
-export const authModules = ['fc', 'flexo', 'traslado'] as const;
+export const authModules = ['fc', 'flexo', 'traslado', 'especiales'] as const;
 export type AuthModule = typeof authModules[number];
 
 const userRecordSchema = z.object({

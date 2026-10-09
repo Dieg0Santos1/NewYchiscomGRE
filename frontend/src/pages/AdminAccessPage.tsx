@@ -6,6 +6,7 @@ import type { AuthAccess, AuthModule, CreateAuthAccess, UpdateAuthAccess } from 
 const moduleOptions: Array<{ value: AuthModule; label: string }> = [
   { value: 'fc', label: 'FC' },
   { value: 'flexo', label: 'Flexo' },
+  { value: 'especiales', label: 'Especiales' },
   { value: 'traslado', label: 'Guía 2' }
 ];
 
@@ -277,6 +278,7 @@ export function AdminAccessPage() {
 }
 
 function moduleLabel(module: AuthModule) {
+  if (module === 'especiales') return 'Especiales';
   if (module === 'traslado') return 'Guía 2';
   if (module === 'flexo') return 'Flexo';
   return 'FC';
