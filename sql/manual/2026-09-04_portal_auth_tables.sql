@@ -49,7 +49,7 @@ BEGIN
     CONSTRAINT PK_GRE_PORTAL_USUARIO_MODULO PRIMARY KEY (idUsuario, modulo),
     CONSTRAINT FK_GRE_PORTAL_USUARIO_MODULO_usuario FOREIGN KEY (idUsuario)
       REFERENCES dbo.GRE_PORTAL_USUARIO (idUsuario),
-    CONSTRAINT CK_GRE_PORTAL_USUARIO_MODULO_modulo CHECK (modulo IN ('fc', 'flexo', 'traslado'))
+    CONSTRAINT CK_GRE_PORTAL_USUARIO_MODULO_modulo CHECK (modulo IN ('fc', 'flexo', 'traslado', 'especiales'))
   );
 END;
 

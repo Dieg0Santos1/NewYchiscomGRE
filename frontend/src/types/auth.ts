@@ -1,4 +1,4 @@
-export type AuthModule = 'fc' | 'flexo' | 'traslado';
+export type AuthModule = 'fc' | 'flexo' | 'traslado' | 'especiales';
 
 export type AuthUser = {
   username: string;

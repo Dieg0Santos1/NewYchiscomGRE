@@ -13,7 +13,7 @@ type AppProps = {
 export default function App({ route, onNavigate, children, user, onLogout }: AppProps) {
   const isActive = (target: string) => (route === target ? 'active' : undefined);
   const isAdminRoute = route === '/administracion/accesos';
-  const module = route.startsWith('/flexo') ? 'flexo' : route.startsWith('/traslado') ? 'traslado' : 'fc';
+  const module = route === '/reportes/especiales' ? 'especiales' : route.startsWith('/flexo') ? 'flexo' : route.startsWith('/traslado') ? 'traslado' : 'fc';
   const routes = module === 'flexo'
     ? {
         ajustes: '/flexo/ajustes',
@@ -29,6 +29,10 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
         reportes: '/traslado/reportes',
         especiales: '/reportes/especiales'
       }
+    : module === 'especiales'
+    ? {
+        reportes: '/reportes/especiales'
+      }
     : {
         guias: '/guias/nueva',
         facturas: '/facturas',
@@ -42,7 +46,9 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
         ? '/flexo/ajustes'
         : nextModule === 'traslado'
           ? '/traslado/guias/nueva'
-          : '/guias/nueva'
+          : nextModule === 'especiales'
+            ? '/reportes/especiales'
+            : '/guias/nueva'
     );
   };
 
@@ -64,6 +70,7 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
             <div className="module-switch" aria-label="Módulo">
               {user.modules.includes('fc') && <button type="button" className={!isAdminRoute && module === 'fc' ? 'active' : ''} onClick={() => switchModule('fc')}>FC</button>}
               {user.modules.includes('flexo') && <button type="button" className={module === 'flexo' ? 'active' : ''} onClick={() => switchModule('flexo')}>Flexo</button>}
+              {user.modules.includes('especiales') && <button type="button" className={module === 'especiales' ? 'active' : ''} onClick={() => switchModule('especiales')}>Especiales</button>}
               {user.modules.includes('traslado') && <button type="button" className={module === 'traslado' ? 'active' : ''} onClick={() => switchModule('traslado')}>Guía 2</button>}
             </div>
             <span className="session-user">{user.displayName}</span>
@@ -114,18 +121,18 @@ export default function App({ route, onNavigate, children, user, onLogout }: App
               </a>
             </>
           )}
-          {!isAdminRoute && module !== 'flexo' && <a
-              className={isActive(routes.guias)}
-              href={`#${routes.guias}`}
-              onClick={() => onNavigate(routes.guias)}
+          {!isAdminRoute && module !== 'flexo' && module !== 'especiales' && <a
+              className={isActive(routes.guias!)}
+              href={`#${routes.guias!}`}
+              onClick={() => onNavigate(routes.guias!)}
             >
               {module === 'fc' ? 'GRE' : 'Guias'}
             </a>}
-          {!isAdminRoute && module !== 'traslado' && module !== 'flexo' && (
+          {!isAdminRoute && module !== 'traslado' && module !== 'flexo' && module !== 'especiales' && (
             <a
-              className={isActive(routes.facturas)}
-              href={`#${routes.facturas}`}
-              onClick={() => onNavigate(routes.facturas)}
+              className={isActive(routes.facturas!)}
+              href={`#${routes.facturas!}`}
+              onClick={() => onNavigate(routes.facturas!)}
             >
               Facturas
             </a>
